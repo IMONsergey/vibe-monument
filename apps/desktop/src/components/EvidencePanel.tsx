@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { isAutoRepairEnabled, setAutoRepairEnabled } from '../repair/controller';
+import { isAutoRepairEnabled, requestVerificationRepair, setAutoRepairEnabled } from '../repair/controller';
 import {
   isAutoVerificationEnabled,
   runVerification,
@@ -55,9 +55,11 @@ export function EvidencePanel({
   const [autoBusy, setAutoBusy] = useState(false);
   const [repairEnabled, setRepairEnabled] = useState(false);
   const [repairBusy, setRepairBusy] = useState(false);
+  const [explicitRepairRequested, setExplicitRepairRequested] = useState(false);
 
   useEffect(() => {
     let disposed = false;
+    setExplicitRepairRequested(false);
     const projectId = evidence?.projectId;
     if (!projectId) {
       setAutoEnabled(false);
@@ -129,6 +131,11 @@ export function EvidencePanel({
     }
   };
 
+  const fixFailedChecks = () => {
+    if (!evidence || stale || evidence.status !== 'failed' || explicitRepairRequested) return;
+    if (requestVerificationRepair(evidence)) setExplicitRepairRequested(true);
+  };
+
   return (
     <div className={`evidence-panel ${stale ? 'stale' : ''}`}>
       <div className="evidence-header">
@@ -136,9 +143,16 @@ export function EvidencePanel({
           <strong>{statusLabel(progress, stale)}</strong>
           <span>Deterministic project checks, not agent confidence.</span>
         </div>
-        <button type="button" disabled={manualRunning || autoBusy || evidence?.status === 'running'} onClick={onRunAll}>
-          {manualRunning ? 'Running…' : 'Run all checks'}
-        </button>
+        <div className="evidence-header-actions">
+          {evidence?.status === 'failed' ? (
+            <button type="button" className="fix-evidence-button" disabled={stale || explicitRepairRequested || manualRunning} onClick={fixFailedChecks}>
+              {explicitRepairRequested ? 'Repair requested' : 'Fix with Monument'}
+            </button>
+          ) : null}
+          <button type="button" disabled={manualRunning || autoBusy || evidence?.status === 'running'} onClick={onRunAll}>
+            {manualRunning ? 'Running…' : 'Run all checks'}
+          </button>
+        </div>
       </div>
 
       {!evidence ? (
