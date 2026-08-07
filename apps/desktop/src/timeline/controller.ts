@@ -82,10 +82,9 @@ export async function restoreTimelineVersion(
   return timelineRestore(project.rootPath, project.id, checkpointId);
 }
 
-export async function backTimeline(
-  project: ProjectInspection,
-  activePathId: string,
-): Promise<TimelineRestoreResult> {
+export async function backTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
+  const before = await timelineStatus(project.rootPath, project.id);
+  const activePathId = before.activePathId;
   const result = await timelineBack(project.rootPath, project.id);
   if (activePathId && result.state.activePathId !== activePathId) {
     await timelineSetActivePath(project.id, activePathId);
