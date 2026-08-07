@@ -22,6 +22,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          printf '%s  %s\n' \
+            '6dc1a384814fbe2bc77e002fd07d4f0517001db95ee992c862f9d0d046cc6fb9' '.benchmark-bootstrap-valid/part00' \
+            'ab27e38b19ee273b204f54c2aaf7e41f313d8f575994cbce3487f8c143276594' '.benchmark-bootstrap-valid/part01' \
+            'e21d76281c072866a74ac44b8a468e40ea63d898e6898070890b1a69b2e380f5' '.benchmark-bootstrap-valid/part02' \
+            'f2a621d193721e5257afc483777f09e43e50ba77d15e87fc674f36498bef20e4' '.benchmark-bootstrap-valid/part03' \
+            '24d80f188b3581874691887f5a73c2c6a9f3ee2547d54f491c3529862cad1892' '.benchmark-bootstrap-valid/part04' \
+            '1c2010fa11090e7232484e0d443a9088aa71f58c01e2c56fb127c3cb4ac674e7' '.benchmark-bootstrap-valid/part05' \
+            '441717c8e586c654c75dabd57c41ab18000832c666ad4dcff9f5b53674617efb' '.benchmark-bootstrap-valid/correct06' \
+            '0e686398493c357f3cb20c898a2257629b2c1b9dd9d4ecd1da252583e4262d0c' '.benchmark-bootstrap-valid/part07' \
+            '984008cfd1e62c0ac0bf865d35be65b684d3037b8b075aebc9145635ed74c93c' '.benchmark-bootstrap-valid/part08' \
+            > /tmp/vibeos21.parts.sha256
+          sha256sum -c /tmp/vibeos21.parts.sha256
           cat \
             .benchmark-bootstrap-valid/part00 \
             .benchmark-bootstrap-valid/part01 \
