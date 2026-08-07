@@ -1,0 +1,60 @@
+name: Monument Browser Evidence Finalize
+
+on:
+  push:
+    branches: [monument/browser-evidence]
+    paths:
+      - '.github/workflows/monument-browser-evidence-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: monument/browser-evidence
+          fetch-depth: 0
+
+      - name: Apply Browser Evidence integration, hardening and release guard atomically
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          workflows = [
+              '.github/workflows/monument-browser-evidence-bootstrap.yml',
+              '.github/workflows/monument-browser-evidence-harden.yml',
+              '.github/workflows/monument-release-immutability-bootstrap.yml',
+          ]
+
+          for workflow in workflows:
+              text = Path(workflow).read_text()
+              match = re.search(r"python3 - <<'PY'\n(.*?)\n\s+PY(?:\n|$)", text, re.S)
+              if not match:
+                  raise SystemExit(f'embedded Python block not found in {workflow}')
+              code = textwrap.dedent(match.group(1))
+              print(f'Applying {workflow}')
+              exec(compile(code, workflow, 'exec'), {'__name__': '__main__'})
+          PY
+
+      - name: Remove all one-shot migration workflows
+        run: |
+          rm -f \
+            .github/workflows/monument-browser-evidence-bootstrap.yml \
+            .github/workflows/monument-browser-evidence-harden.yml \
+            .github/workflows/monument-browser-evidence-cleanup.yml \
+            .github/workflows/monument-release-immutability-bootstrap.yml \
+            .github/workflows/monument-browser-evidence-finalize.yml
+
+      - name: Commit finalized Browser Evidence product code
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat: finalize browser evidence and release integrity'
+          git push origin HEAD:monument/browser-evidence
