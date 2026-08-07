@@ -32,6 +32,7 @@ export type CodexConnectionState =
   | 'ready'
   | 'busy'
   | 'approval'
+  | 'auth-required'
   | 'reconnecting'
   | 'error';
 
@@ -49,6 +50,22 @@ export interface CodexProtocolProbe {
   generatedFiles: number;
   schemaDirectory: string | null;
   error: string | null;
+}
+
+export interface CodexAccountSnapshot {
+  accountType: string | null;
+  email: string | null;
+  planType: string | null;
+  requiresOpenaiAuth: boolean;
+  readyForTurns: boolean;
+}
+
+export interface CodexLoginStart {
+  type: string;
+  loginId: string | null;
+  authUrl: string | null;
+  verificationUrl: string | null;
+  userCode: string | null;
 }
 
 export interface CodexThreadSummary {
@@ -105,6 +122,7 @@ export interface WorkspaceState {
   threads: CodexThreadSummary[];
   codexState: CodexConnectionState;
   codexMessage: string;
+  account: CodexAccountSnapshot | null;
   approval: ApprovalRequest | null;
   activity: ActivityItem[];
 }
