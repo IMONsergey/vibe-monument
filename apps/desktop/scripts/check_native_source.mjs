@@ -10,6 +10,7 @@ const codex = await readFile(join(root, 'src-tauri/src/codex_runtime.rs'), 'utf8
 const project = await readFile(join(root, 'src-tauri/src/project_runtime.rs'), 'utf8');
 const processRuntime = await readFile(join(root, 'src-tauri/src/process_runtime.rs'), 'utf8');
 const previewRuntime = await readFile(join(root, 'src-tauri/src/preview_runtime.rs'), 'utf8');
+const sourceLocator = await readFile(join(root, 'src-tauri/src/source_locator.rs'), 'utf8');
 const persistence = await readFile(join(root, 'src-tauri/src/persistence.rs'), 'utf8');
 const systemRuntime = await readFile(join(root, 'src-tauri/src/system_runtime.rs'), 'utf8');
 const app = await readFile(join(root, 'src/App.tsx'), 'utf8');
@@ -41,6 +42,9 @@ for (const token of ['preview_open', 'preview_set_bounds', 'preview_set_inspect'
   if (!previewRuntime.includes(token)) throw new Error(`Preview inspector runtime missing ${token}`);
 }
 if (previewRuntime.includes('dangerousRemoteDomainIpcAccess')) throw new Error('Live preview must not gain broad remote Tauri IPC access');
+for (const token of ['project_source_hints', 'MAX_FILES', 'MAX_FILE_BYTES', 'tsx', 'vue', 'svelte', 'score_line']) {
+  if (!sourceLocator.includes(token)) throw new Error(`Selected-element source locator missing ${token}`);
+}
 for (const token of ['monument.sqlite', 'CREATE TABLE IF NOT EXISTS app_state', 'state_get', 'state_set']) {
   if (!persistence.includes(token)) throw new Error(`Persistence runtime missing ${token}`);
 }
@@ -65,7 +69,10 @@ for (const token of ['preview_open', 'preview_set_bounds', 'preview_set_inspect'
 for (const token of ['[Monument live element context]', 'Selector:', 'Computed styles:', 'Locate the owning source/component']) {
   if (!selection.includes(token)) throw new Error(`Live selection context compiler missing ${token}`);
 }
-if (!turnContext.includes('selectionContext(selection)')) throw new Error('Selected live context is not compiled into the next Codex turn');
+for (const token of ['project_source_hints', '[Monument deterministic source hints]', 'search-ranked hints', 'selectionContext(selection)']) {
+  if (!turnContext.includes(token)) throw new Error(`Selected turn enrichment missing ${token}`);
+}
+if (!app.includes('await compileTurnText(text, project.rootPath)')) throw new Error('Selected live/source context is not awaited before starting the Codex turn');
 
 for (const token of ['onServerRequest', 'respond(', 'respondError(', '-32001', "input: [{ type: 'text', text }]", 'account/read', 'account/login/start']) {
   if (!codexClient.includes(token)) throw new Error(`Codex client protocol gate missing ${token}`);
@@ -74,8 +81,8 @@ if (codexClient.includes('textElements')) throw new Error('Legacy textElements p
 for (const token of ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/permissions/requestApproval', 'item/tool/requestUserInput', 'serverRequest/resolved', 'account/login/completed', 'account/updated', 'resolveApproval', 'answerUserInput', 'startChatGptLogin']) {
   if (!codexProjection.includes(token)) throw new Error(`Codex runtime projection missing ${token}`);
 }
-for (const source of [codex, processRuntime, previewRuntime, systemRuntime]) {
+for (const source of [codex, processRuntime, previewRuntime, sourceLocator, systemRuntime]) {
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log('Monument production/native/protocol/auth/preview/select source contract: PASS');
+console.log('Monument production/native/protocol/auth/preview/select/source-hints contract: PASS');
