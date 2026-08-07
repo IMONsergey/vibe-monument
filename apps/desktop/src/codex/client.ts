@@ -3,9 +3,42 @@ import type { CodexTransport, RpcMessage } from './transport';
 export type NotificationHandler = (message: RpcMessage) => void;
 export type ServerRequestHandler = (message: Required<Pick<RpcMessage, 'id' | 'method'>> & RpcMessage) => void;
 
+type PendingRequest = {
+  resolve(value: unknown): void;
+  reject(reason: unknown): void;
+  timer: number;
+};
+
+export class CodexRpcError extends Error {
+  constructor(
+    message: string,
+    readonly code?: number,
+    readonly data?: unknown,
+  ) {
+    super(message);
+    this.name = 'CodexRpcError';
+  }
+}
+
+function normalizeRpcError(value: unknown): CodexRpcError {
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return new CodexRpcError(
+      typeof record.message === 'string' ? record.message : 'Codex request failed',
+      typeof record.code === 'number' ? record.code : undefined,
+      record.data,
+    );
+  }
+  return new CodexRpcError(typeof value === 'string' ? value : 'Codex request failed');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export class CodexClient {
   private nextId = 1;
-  private pending = new Map<number, { resolve(value: unknown): void; reject(reason: unknown): void }>();
+  private pending = new Map<number, PendingRequest>();
   private notificationHandlers = new Set<NotificationHandler>();
   private serverRequestHandlers = new Set<ServerRequestHandler>();
 
@@ -18,13 +51,17 @@ export class CodexClient {
     );
     const result = await this.request('initialize', {
       clientInfo: { name: 'monument_desktop', title: 'Monument', version: '0.2.0' },
+      capabilities: {},
     });
     await this.notify('initialized', {});
     return result;
   }
 
   async close(): Promise<void> {
-    for (const { reject } of this.pending.values()) reject(new Error('Codex connection closed'));
+    for (const { reject, timer } of this.pending.values()) {
+      window.clearTimeout(timer);
+      reject(new Error('Codex connection closed'));
+    }
     this.pending.clear();
     await this.transport.close();
   }
@@ -40,15 +77,18 @@ export class CodexClient {
   }
 
   async request<T = unknown>(method: string, params: unknown = {}): Promise<T> {
-    const id = this.nextId++;
-    const response = new Promise<T>((resolve, reject) => {
-      this.pending.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
-      });
-    });
-    await this.transport.send({ id, method, params });
-    return response;
+    const delays = [0, 120, 320, 800];
+    let lastError: unknown;
+    for (const delay of delays) {
+      if (delay) await sleep(delay + Math.round(Math.random() * 80));
+      try {
+        return await this.requestOnce<T>(method, params);
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof CodexRpcError) || error.code !== -32001) throw error;
+      }
+    }
+    throw lastError;
   }
 
   async notify(method: string, params: unknown = {}): Promise<void> {
@@ -59,8 +99,8 @@ export class CodexClient {
     await this.transport.send({ id, result });
   }
 
-  async respondError(id: string | number, error: unknown): Promise<void> {
-    await this.transport.send({ id, error });
+  async respondError(id: string | number, code: number, message: string, data?: unknown): Promise<void> {
+    await this.transport.send({ id, error: { code, message, ...(data === undefined ? {} : { data }) } });
   }
 
   listThreads(params: unknown = {}): Promise<{ data?: unknown[] }> {
@@ -86,13 +126,58 @@ export class CodexClient {
   startTurn(threadId: string, text: string, params: Record<string, unknown> = {}): Promise<unknown> {
     return this.request('turn/start', {
       threadId,
-      input: [{ type: 'text', text, textElements: [] }],
+      input: [{ type: 'text', text }],
       ...params,
     });
   }
 
   interruptTurn(threadId: string, turnId: string): Promise<unknown> {
     return this.request('turn/interrupt', { threadId, turnId });
+  }
+
+  readAccount(refreshToken = false): Promise<unknown> {
+    return this.request('account/read', { refreshToken });
+  }
+
+  startChatGptLogin(): Promise<unknown> {
+    return this.request('account/login/start', {
+      type: 'chatgpt',
+      useHostedLoginSuccessPage: true,
+      appBrand: 'codex',
+    });
+  }
+
+  cancelLogin(loginId: string): Promise<unknown> {
+    return this.request('account/login/cancel', { loginId });
+  }
+
+  logout(): Promise<unknown> {
+    return this.request('account/logout', {});
+  }
+
+  private async requestOnce<T>(method: string, params: unknown): Promise<T> {
+    const id = this.nextId++;
+    const response = new Promise<T>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        this.pending.delete(id);
+        reject(new CodexRpcError(`${method} timed out`));
+      }, 30_000);
+      this.pending.set(id, {
+        resolve: (value) => resolve(value as T),
+        reject,
+        timer,
+      });
+    });
+
+    try {
+      await this.transport.send({ id, method, params });
+    } catch (error) {
+      const pending = this.pending.get(id);
+      if (pending) window.clearTimeout(pending.timer);
+      this.pending.delete(id);
+      throw error;
+    }
+    return response;
   }
 
   private handleMessage(message: RpcMessage): void {
@@ -104,8 +189,9 @@ export class CodexClient {
 
     if (typeof message.id === 'number' && this.pending.has(message.id)) {
       const pending = this.pending.get(message.id)!;
+      window.clearTimeout(pending.timer);
       this.pending.delete(message.id);
-      if (message.error != null) pending.reject(message.error);
+      if (message.error != null) pending.reject(normalizeRpcError(message.error));
       else pending.resolve(message.result);
       return;
     }
