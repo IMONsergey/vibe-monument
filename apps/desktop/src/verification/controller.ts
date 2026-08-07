@@ -118,10 +118,12 @@ function timelineStatusFor(evidence: VerificationEvidence): TimelineDeterministi
 async function persistFinal(evidence: VerificationEvidence): Promise<void> {
   await persist(evidence);
   if (evidence.turnSerial > 0) {
+    const rawStatus = timelineStatusFor(evidence);
+    const status: Exclude<TimelineDeterministicStatus, 'not-run'> = rawStatus === 'not-run' ? 'no-checks' : rawStatus;
     await recordTimelineDeterministicQuality(
       evidence.projectId,
       evidence.turnSerial,
-      timelineStatusFor(evidence) === 'not-run' ? 'no-checks' : timelineStatusFor(evidence),
+      status,
       evidence.id,
     ).catch(() => undefined);
   }
