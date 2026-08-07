@@ -10,12 +10,19 @@ function includesAll(text, tokens, label) {
   for (const token of tokens) assert.ok(text.includes(token), `${label} missing ${token}`);
 }
 
+function embeddedBrowserScript(rustSource) {
+  const match = rustSource.match(/pub const BROWSER_EVIDENCE_SCRIPT: &str = r#"([\s\S]*?)"#;/);
+  assert.ok(match, 'embedded browser evidence script was not found');
+  return match[1];
+}
+
 test('native preview wires bounded browser evidence without broad remote IPC', async () => {
   const [preview, lib, browser] = await Promise.all([
     source('src-tauri/src/preview_runtime.rs'),
     source('src-tauri/src/lib.rs'),
     source('src-tauri/src/browser_evidence.rs'),
   ]);
+  const browserScript = embeddedBrowserScript(browser);
 
   includesAll(preview, [
     'BROWSER_EVIDENCE_SCRIPT',
@@ -30,23 +37,26 @@ test('native preview wires bounded browser evidence without broad remote IPC', a
     'preview_collect_browser_evidence',
     'preview_clear_browser_evidence',
   ], 'native command registry');
-  includesAll(browser, [
-    'MAX_CONSOLE_EVENTS',
-    'MAX_RUNTIME_EVENTS',
-    'MAX_NETWORK_EVENTS',
-    'SLOW_REQUEST_MS',
+  includesAll(browserScript, [
     "['warn', 'error']",
     'unhandledrejection',
     'window.fetch',
     'XMLHttpRequest',
     'url.pathname',
-  ], 'browser evidence contract');
+  ], 'embedded browser evidence script');
+  includesAll(browser, [
+    'MAX_CONSOLE_EVENTS',
+    'MAX_RUNTIME_EVENTS',
+    'MAX_NETWORK_EVENTS',
+    'SLOW_REQUEST_MS',
+    'MAX_PAYLOAD_BYTES',
+  ], 'native browser evidence bounds');
 
   assert.ok(!preview.includes('dangerousRemoteDomainIpcAccess'));
-  assert.ok(!browser.includes('url.search'));
-  assert.ok(!browser.includes('url.hash'));
-  assert.ok(!browser.includes('response.text'));
-  assert.ok(!browser.includes('response.json'));
+  assert.ok(!browserScript.includes('url.search'));
+  assert.ok(!browserScript.includes('url.hash'));
+  assert.ok(!browserScript.includes('response.text'));
+  assert.ok(!browserScript.includes('response.json'));
 });
 
 test('turn generations make deterministic and browser evidence stale after newer work', async () => {
@@ -78,8 +88,8 @@ test('turn generations make deterministic and browser evidence stale after newer
   ], 'product evidence orchestration');
 });
 
-test('alpha4 release only runs on deliberate version/release changes', async () => {
-  const [pkg, cargo, tauri, version, release, entry] = await Promise.all([
+test('Intel release identity follows the app version and only runs on deliberate release changes', async () => {
+  const [pkgText, cargo, tauriText, versionModule, release, entry] = await Promise.all([
     source('package.json'),
     source('src-tauri/Cargo.toml'),
     source('src-tauri/tauri.conf.json'),
@@ -88,14 +98,16 @@ test('alpha4 release only runs on deliberate version/release changes', async () 
     source('src/main.tsx'),
   ]);
 
-  assert.equal(JSON.parse(pkg).version, '0.2.0-alpha.4');
-  assert.match(cargo, /version = "0\.2\.0-alpha\.4"/);
-  assert.equal(JSON.parse(tauri).version, '0.2.0-alpha.4');
-  assert.ok(version.includes("0.2.0-alpha.4"));
-  assert.ok(release.includes("MONUMENT_VERSION: '0.2.0-alpha.4'"));
-  assert.ok(release.includes("monument-v0.2.0-alpha.4-intel"));
-  assert.ok(release.includes("apps/desktop/package.json"));
-  assert.ok(release.includes("apps/desktop/src/version.ts"));
+  const appVersion = JSON.parse(pkgText).version;
+  assert.match(appVersion, /^0\.2\.0-alpha\.\d+$/);
+  assert.match(cargo, new RegExp(`version = "${appVersion.replaceAll('.', '\\.') }"`));
+  assert.equal(JSON.parse(tauriText).version, appVersion);
+  assert.ok(versionModule.includes(`MONUMENT_VERSION = '${appVersion}'`));
+  assert.ok(release.includes(`MONUMENT_VERSION: '${appVersion}'`));
+  assert.ok(release.includes(`monument-v${appVersion}-intel`));
+  assert.ok(release.includes(`Monument-${appVersion}-Intel-x86_64.dmg`));
+  assert.ok(release.includes('apps/desktop/package.json'));
+  assert.ok(release.includes('apps/desktop/src/version.ts'));
   assert.ok(!release.includes("'apps/desktop/**'"));
   assert.ok(entry.includes("./styles/browser-evidence.css"));
 });
