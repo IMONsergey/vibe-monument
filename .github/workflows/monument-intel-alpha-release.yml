@@ -27,9 +27,9 @@ jobs:
         working-directory: apps/desktop
     env:
       APPLE_SIGNING_IDENTITY: '-'
-      MONUMENT_VERSION: '0.2.0-alpha.4'
-      RELEASE_TAG: 'monument-v0.2.0-alpha.4-intel'
-      RELEASE_ASSET: 'Monument-0.2.0-alpha.4-Intel-x86_64.dmg'
+      MONUMENT_VERSION: '0.2.0-alpha.5'
+      RELEASE_TAG: 'monument-v0.2.0-alpha.5-intel'
+      RELEASE_ASSET: 'Monument-0.2.0-alpha.5-Intel-x86_64.dmg'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,36 +111,42 @@ jobs:
         run: |
           echo publish > /tmp/monument-release-stage
           cat > /tmp/monument-release-notes.md <<'EOF'
-          Monument 0.2.0 Alpha 4 — Browser Evidence / Auto-QA — Intel Mac
+          Monument 0.2.0 Alpha 5 — Version Timeline — Intel Mac
 
-          Product-first alpha for Intel Macs.
+          Product-first Codex workspace for Intel Macs, now with reversible Figma Make-style product history.
 
-          Included:
-          - real local project inspection and managed dev runtime;
-          - real Codex threads, streaming turns, interrupt, approvals and inline questions;
-          - Codex-managed ChatGPT sign-in and protocol diagnostics;
-          - native child WKWebView live preview;
-          - Select mode (`I`) with hover outline and live DOM element capture;
-          - selected element context automatically attached to the next Codex turn;
-          - deterministic source hints ranked from the actual repository;
-          - trusted deterministic typecheck/test/build evidence with explicit project permission;
-          - bounded browser runtime/console/network evidence from the live preview;
-          - stale-evidence invalidation when newer Codex work starts;
-          - desktop/mobile preview geometry;
-          - local SQLite restoration and progressive-disclosure developer tools.
+          Core workflow:
+          - open a real local project and run its actual dev server inside Monument;
+          - work with real Codex threads, streaming turns, interrupt, approvals and inline questions;
+          - Select (`I`) any element in the live product and attach real DOM/accessibility/style/source context to the next prompt;
+          - run deterministic Auto-QA plus bounded Browser Evidence from the real preview.
+
+          Version Timeline:
+          - `Original` baseline before the first Monument prompt;
+          - automatic source checkpoint after every completed Codex prompt;
+          - checkpoint finalization happens before Monument accepts the next prompt;
+          - top-bar Back / Forward plus `⌘Z` / `⇧⌘Z` outside editable controls;
+          - Versions drawer with human prompt titles, Current/Fork/Alternative badges and manual Save version;
+          - restore any earlier version without deleting later versions;
+          - new work from an older version creates an alternative history path;
+          - dirty source is automatically saved as `Before restore` before switching versions;
+          - restore touches only Timeline-managed source and leaves ignored/unmanaged files alone;
+          - safe restore preflights current and target paths against symlink escape;
+          - after Restore / Back / Forward the next prompt starts a clean Codex thread while previous tasks remain in history;
+          - shadow Git storage is isolated from the user's visible Git index/history and never uses `git reset --hard` on the project.
 
           Requirements:
-          - Intel Mac (x86_64, including Core i9);
+          - Intel Mac (x86_64, including Intel Core i9);
           - macOS 13 or newer;
-          - OpenAI Codex CLI installed.
+          - OpenAI Codex CLI installed and available to the desktop app.
 
           This alpha is ad-hoc signed and not notarized yet. macOS may require allowing Monument in System Settings → Privacy & Security on first launch.
           EOF
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$RELEASE_TAG" --title 'Monument 0.2.0 Alpha 4 — Browser Evidence / Auto-QA — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --title 'Monument 0.2.0 Alpha 5 — Version Timeline — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --target "$GITHUB_SHA" --title 'Monument 0.2.0 Alpha 4 — Browser Evidence / Auto-QA — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+            gh release create "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --target "$GITHUB_SHA" --title 'Monument 0.2.0 Alpha 5 — Version Timeline — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url > /tmp/monument-release-url
 
