@@ -1,3 +1,4 @@
+mod browser_evidence;
 mod codex_runtime;
 mod persistence;
 mod preview_runtime;
@@ -9,7 +10,7 @@ mod verification_runtime;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use persistence::{state_get, state_set};
-use preview_runtime::{preview_close, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
+use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_collect_browser_evidence, preview_install_browser_evidence, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
 use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
 use source_locator::project_source_hints;
@@ -37,6 +38,9 @@ pub fn run() {
             preview_open,
             preview_set_bounds,
             preview_set_inspect,
+            preview_install_browser_evidence,
+            preview_collect_browser_evidence,
+            preview_clear_browser_evidence,
             preview_reload,
             preview_close,
             verification_plan,

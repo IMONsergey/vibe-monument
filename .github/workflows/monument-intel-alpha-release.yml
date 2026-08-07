@@ -4,7 +4,10 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/desktop/**'
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/src/version.ts'
+      - 'apps/desktop/src-tauri/Cargo.toml'
+      - 'apps/desktop/src-tauri/tauri.conf.json'
       - '.github/workflows/monument-intel-alpha-release.yml'
   workflow_dispatch:
 
@@ -24,11 +27,13 @@ jobs:
         working-directory: apps/desktop
     env:
       APPLE_SIGNING_IDENTITY: '-'
-      MONUMENT_VERSION: '0.2.0-alpha.3'
-      RELEASE_TAG: 'monument-v0.2.0-alpha.3-intel'
-      RELEASE_ASSET: 'Monument-0.2.0-alpha.3-Intel-x86_64.dmg'
+      MONUMENT_VERSION: '0.2.0-alpha.4'
+      RELEASE_TAG: 'monument-v0.2.0-alpha.4-intel'
+      RELEASE_ASSET: 'Monument-0.2.0-alpha.4-Intel-x86_64.dmg'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -42,6 +47,18 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-apple-darwin
+
+      - name: Guard immutable release identity
+        run: |
+          echo identity > /tmp/monument-release-stage
+          git fetch --tags --force
+          if git rev-parse "$RELEASE_TAG^{commit}" >/dev/null 2>&1; then
+            EXISTING_SHA="$(git rev-list -n 1 "$RELEASE_TAG")"
+            if [ "$EXISTING_SHA" != "$GITHUB_SHA" ]; then
+              echo "Release tag $RELEASE_TAG already points to $EXISTING_SHA; current commit is $GITHUB_SHA. Bump Monument version instead of replacing an existing release." >&2
+              exit 1
+            fi
+          fi
 
       - name: Validate production contracts
         run: |
@@ -94,7 +111,7 @@ jobs:
         run: |
           echo publish > /tmp/monument-release-stage
           cat > /tmp/monument-release-notes.md <<'EOF'
-          Monument 0.2.0 Alpha 3 — Select / Inspect — Intel Mac
+          Monument 0.2.0 Alpha 4 — Browser Evidence / Auto-QA — Intel Mac
 
           Product-first alpha for Intel Macs.
 
@@ -106,6 +123,9 @@ jobs:
           - Select mode (`I`) with hover outline and live DOM element capture;
           - selected element context automatically attached to the next Codex turn;
           - deterministic source hints ranked from the actual repository;
+          - trusted deterministic typecheck/test/build evidence with explicit project permission;
+          - bounded browser runtime/console/network evidence from the live preview;
+          - stale-evidence invalidation when newer Codex work starts;
           - desktop/mobile preview geometry;
           - local SQLite restoration and progressive-disclosure developer tools.
 
@@ -118,9 +138,9 @@ jobs:
           EOF
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$RELEASE_TAG" --title 'Monument 0.2.0 Alpha 3 — Select / Inspect — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --title 'Monument 0.2.0 Alpha 4 — Browser Evidence / Auto-QA — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --target "$GITHUB_SHA" --title 'Monument 0.2.0 Alpha 3 — Select / Inspect — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+            gh release create "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --target "$GITHUB_SHA" --title 'Monument 0.2.0 Alpha 4 — Browser Evidence / Auto-QA — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url > /tmp/monument-release-url
 
