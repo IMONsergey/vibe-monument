@@ -1,0 +1,73 @@
+name: Monument Intel Alpha Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/monument-intel-alpha-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-intel-dmg:
+    name: Intel x86_64 DMG
+    runs-on: macos-15-intel
+    defaults:
+      run:
+        working-directory: apps/desktop
+    env:
+      APPLE_SIGNING_IDENTITY: '-'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Rust stable for Intel
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-apple-darwin
+
+      - name: Validate web and Codex contracts
+        run: |
+          npm run check
+          npm test
+          npm run build
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Generate complete macOS icon set
+        run: cargo tauri icon src-tauri/icons/icon.png
+
+      - name: Build and publish Intel DMG
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: '-'
+        with:
+          projectPath: apps/desktop
+          tauriScript: cargo tauri
+          tagName: monument-v0.1.0-alpha.1-intel
+          releaseName: 'Monument 0.1.0 Alpha 1 — Intel Mac'
+          releaseBody: |
+            First installable Monument alpha for Intel Macs (x86_64).
+
+            Requirements:
+            - Intel Mac (including Core i9)
+            - macOS 13 or newer
+            - OpenAI Codex CLI installed and authenticated
+
+            This alpha uses ad-hoc signing and is not notarized yet. macOS may require allowing Monument in System Settings → Privacy & Security on first launch.
+          prerelease: true
+          releaseDraft: false
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: 'Monument-Intel-x86_64-DMG'
+          releaseAssetNamePattern: 'Monument-[version]-Intel-x86_64.[ext]'
+          args: '--target x86_64-apple-darwin --bundles dmg'
