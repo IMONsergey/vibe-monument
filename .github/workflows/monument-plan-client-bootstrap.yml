@@ -1,0 +1,94 @@
+name: Monument Codex Plan Client Bootstrap
+
+on:
+  push:
+    branches: [feature/codex-plan-review-v3]
+    paths:
+      - '.github/workflows/monument-plan-client-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/codex-plan-review-v3
+
+      - name: Add official App Server Plan / Review client methods
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('apps/desktop/src/codex/client.ts')
+          text = path.read_text()
+
+          if 'experimentalApi: true' not in text:
+              updated, count = re.subn(r'capabilities\s*:\s*\{\s*\}', 'capabilities: { experimentalApi: true }', text, count=1)
+              if count != 1:
+                  raise SystemExit('Could not locate initialize capabilities object')
+              text = updated
+
+          if 'listCollaborationModes()' not in text:
+              anchor = re.search(r'\n\s{2}async listSkills\(', text)
+              if not anchor:
+                  raise SystemExit('Could not locate CodexClient listSkills anchor')
+              methods = r'''
+  async listCollaborationModes(): Promise<{ data?: unknown[] }> {
+    return this.request('collaborationMode/list', {});
+  }
+
+  async startPlanTurn(
+    threadId: string,
+    text: string,
+    collaborationMode: unknown,
+    options: { cwd?: string } = {},
+  ): Promise<unknown> {
+    return this.request('turn/start', {
+      threadId,
+      input: [{ type: 'text', text }],
+      ...options,
+      collaborationMode,
+    });
+  }
+
+  async startReview(
+    threadId: string,
+    target: Record<string, unknown> = { type: 'uncommittedChanges' },
+    delivery: 'inline' | 'detached' = 'detached',
+  ): Promise<unknown> {
+    return this.request('review/start', { threadId, target, delivery });
+  }
+
+  async forkThreadAt(threadId: string, lastTurnId: string): Promise<unknown> {
+    return this.request('thread/fork', { threadId, lastTurnId });
+  }
+'''
+              text = text[:anchor.start()] + '\n' + methods + text[anchor.start():]
+
+          path.write_text(text)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate client compiles
+        working-directory: apps/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+          npm run build
+
+      - name: Commit client protocol adapter and remove bootstrap workflow
+        run: |
+          git rm -f .github/workflows/monument-plan-client-bootstrap.yml
+          git add apps/desktop/src/codex/client.ts
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: add official Codex Plan and Review client methods'
+          git push origin HEAD:feature/codex-plan-review-v3
