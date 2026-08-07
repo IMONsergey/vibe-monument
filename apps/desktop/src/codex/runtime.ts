@@ -8,6 +8,7 @@ import type {
   SimpleApprovalDecision,
   UserInputQuestion,
 } from '../types';
+import { AUTO_REPAIR_EVENT, MAX_AUTO_REPAIR_ATTEMPTS, type AutoRepairRequest } from '../repair/controller';
 import { checkpointActiveTimelineTurn } from '../timeline/controller';
 import { CodexClient } from './client';
 import { NativeCodexTransport, type RpcMessage } from './transport';
@@ -138,6 +139,8 @@ export class CodexRuntime {
   private listeners = new Set<Listener>();
   private connected = false;
   private itemContexts = new Map<string, ItemContext>();
+  private autoRepairAttempts = new Map<string, number>();
+  private handledRepairEvidence = new Set<string>();
   private snapshot: RuntimeSnapshot = {
     state: 'idle',
     threads: [],
@@ -156,6 +159,7 @@ export class CodexRuntime {
     this.client.onServerRequest((message) => void this.handleServerRequest(message));
     if (typeof window !== 'undefined') {
       window.addEventListener(TIMELINE_RESTORED_EVENT, this.handleTimelineRestore);
+      window.addEventListener(AUTO_REPAIR_EVENT, this.handleAutoRepair);
     }
   }
 
@@ -225,6 +229,7 @@ export class CodexRuntime {
   }
 
   async send(text: string, projectRoot: string): Promise<void> {
+    this.autoRepairAttempts.set(projectRoot, 0);
     if (!this.connected) throw new Error('Codex is not connected');
     if (this.snapshot.account && !this.snapshot.account.readyForTurns) throw new Error('Sign in to Codex before starting a task');
     let threadId = this.snapshot.activeThreadId;
@@ -305,6 +310,48 @@ export class CodexRuntime {
     this.newTask();
     this.activity('system', 'Clean Codex context', 'The restored version will continue in a new task; previous tasks stay in history.');
   };
+
+  private readonly handleAutoRepair = (event: Event) => {
+    const request = (event as CustomEvent<AutoRepairRequest>).detail;
+    if (!request || typeof request.projectRoot !== 'string' || typeof request.evidenceId !== 'string') return;
+    if (this.handledRepairEvidence.has(request.evidenceId)) return;
+    if (request.turnSerial !== this.snapshot.turnSerial || this.snapshot.state !== 'ready' || this.snapshot.activeTurnId) {
+      this.activity('system', 'Auto repair skipped', 'The failed evidence no longer matches the current code state.');
+      return;
+    }
+    const attempts = this.autoRepairAttempts.get(request.projectRoot) ?? 0;
+    if (attempts >= MAX_AUTO_REPAIR_ATTEMPTS) {
+      this.handledRepairEvidence.add(request.evidenceId);
+      this.activity('error', 'Auto repair stopped', `Reached the ${MAX_AUTO_REPAIR_ATTEMPTS}-attempt safety limit. Review the remaining failed checks.`);
+      return;
+    }
+    this.handledRepairEvidence.add(request.evidenceId);
+    const nextAttempt = attempts + 1;
+    this.autoRepairAttempts.set(request.projectRoot, nextAttempt);
+    void this.sendAutoRepair(request, nextAttempt).catch((error) => {
+      this.activity('error', 'Auto repair could not start', String(error instanceof Error ? error.message : error));
+    });
+  };
+
+  private async sendAutoRepair(request: AutoRepairRequest, attempt: number): Promise<void> {
+    if (!this.connected || this.snapshot.state !== 'ready') throw new Error('Codex is not ready for automatic repair');
+    if (this.snapshot.account && !this.snapshot.account.readyForTurns) throw new Error('Codex sign-in is required');
+    let threadId = this.snapshot.activeThreadId;
+    if (!threadId) {
+      const created = await this.client.startThread({ cwd: request.projectRoot });
+      const record = recordOf(created);
+      const thread = asThread(record.thread ?? created);
+      if (!thread) throw new Error('Codex did not return a thread id for automatic repair');
+      threadId = thread.id;
+      this.patch({ threads: [thread, ...this.snapshot.threads], activeThreadId: thread.id });
+    }
+    this.patch({ state: 'busy', message: '', approval: null });
+    this.activity('thinking', `Auto repair ${attempt}/${MAX_AUTO_REPAIR_ATTEMPTS}`, 'Fixing deterministic verification failures with bounded evidence.');
+    const started = await this.client.startTurn(threadId, request.prompt, { cwd: request.projectRoot });
+    const response = recordOf(started);
+    const turnId = objectId(response.turn ?? started);
+    if (turnId) this.patch({ activeTurnId: turnId });
+  }
 
   private async finalizeCompletedTurn({
     codexThreadId,
