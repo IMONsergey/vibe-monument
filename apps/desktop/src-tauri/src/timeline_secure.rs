@@ -3,6 +3,7 @@ use crate::timeline_runtime::{
     timeline_back, timeline_forward, timeline_restore, TimelineRestoreResult, TimelineRuntime,
 };
 use rusqlite::{params, OptionalExtension};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -91,7 +92,7 @@ fn checkpoint_commit(
         .ok_or_else(|| "Timeline checkpoint was not found".to_string())
 }
 
-fn target_paths(
+fn checkpoint_paths(
     app: &AppHandle,
     project_id: &str,
     checkpoint_id: &str,
@@ -100,6 +101,8 @@ fn target_paths(
     let git_dir = shadow_git_dir(app, project_id)?;
     let git = resolve_git()?;
     let output = Command::new(git)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .arg(format!("--git-dir={}", git_dir.to_string_lossy()))
         .args(["ls-tree", "-r", "-z", "--name-only", &commit])
         .output()
@@ -125,17 +128,23 @@ fn target_paths(
 
 fn ensure_no_symlink_escape(project_root: &Path, relative: &str) -> Result<(), String> {
     validate_relative(relative)?;
-    let target = Path::new(relative);
+    let components = Path::new(relative)
+        .components()
+        .map(|component| match component {
+            Component::Normal(segment) => Ok(segment.to_os_string()),
+            _ => Err("Unsafe Timeline restore path".to_string()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // The final component may itself be a managed symlink and can be safely unlinked/replaced.
+    // Only ancestor symlinks can redirect a restore/delete operation outside the project root.
     let mut current = project_root.to_path_buf();
-    for component in target.components() {
-        let Component::Normal(segment) = component else {
-            return Err("Unsafe Timeline restore path".into());
-        };
+    for segment in components.iter().take(components.len().saturating_sub(1)) {
         current.push(segment);
         match fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 return Err(format!(
-                    "Restore blocked because a target path crosses a symlink: {relative}"
+                    "Restore blocked because a managed path crosses a symlink: {relative}"
                 ));
             }
             Ok(_) => {}
@@ -144,19 +153,6 @@ fn ensure_no_symlink_escape(project_root: &Path, relative: &str) -> Result<(), S
                 return Err(format!("Cannot inspect restore path {relative}: {error}"));
             }
         }
-    }
-    Ok(())
-}
-
-fn preflight(
-    app: &AppHandle,
-    project_path: &str,
-    project_id: &str,
-    checkpoint_id: &str,
-) -> Result<(), String> {
-    let root = canonical_project(project_path)?;
-    for relative in target_paths(app, project_id, checkpoint_id)? {
-        ensure_no_symlink_escape(&root, &relative)?;
     }
     Ok(())
 }
@@ -173,6 +169,23 @@ fn current_checkpoint(app: &AppHandle, project_id: &str) -> Result<String, Strin
         .map_err(|error| error.to_string())?
         .flatten()
         .ok_or_else(|| "Timeline project was not initialized".to_string())
+}
+
+fn preflight(
+    app: &AppHandle,
+    project_path: &str,
+    project_id: &str,
+    checkpoint_id: &str,
+) -> Result<(), String> {
+    let root = canonical_project(project_path)?;
+    let current_id = current_checkpoint(app, project_id)?;
+    let mut paths = BTreeSet::new();
+    paths.extend(checkpoint_paths(app, project_id, &current_id)?);
+    paths.extend(checkpoint_paths(app, project_id, checkpoint_id)?);
+    for relative in paths {
+        ensure_no_symlink_escape(&root, &relative)?;
+    }
+    Ok(())
 }
 
 fn parent_checkpoint(app: &AppHandle, project_id: &str) -> Result<String, String> {
@@ -279,16 +292,21 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn restore_preflight_rejects_symlink_ancestors() {
+    fn restore_preflight_rejects_symlink_ancestors_but_not_final_managed_symlink() {
         use std::os::unix::fs::symlink;
         let root = temp_root();
         let outside = root.join("outside");
         let project = root.join("project");
         fs::create_dir_all(&outside).unwrap();
         fs::create_dir_all(&project).unwrap();
+
         symlink(&outside, project.join("src")).unwrap();
         assert!(ensure_no_symlink_escape(&project, "src/app.tsx").is_err());
         assert!(!outside.join("app.tsx").exists());
+
+        fs::remove_file(project.join("src")).unwrap();
+        symlink(&outside, project.join("linked-source")).unwrap();
+        assert!(ensure_no_symlink_escape(&project, "linked-source").is_ok());
         let _ = fs::remove_dir_all(root);
     }
 }
