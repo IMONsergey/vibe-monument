@@ -1,7 +1,8 @@
 import type { VerificationProgress, VerificationResult } from '../verification/controller';
 
-function statusLabel(progress: VerificationProgress | null): string {
+function statusLabel(progress: VerificationProgress | null, stale: boolean): string {
   if (!progress) return 'No evidence yet';
+  if (stale) return 'Previous checks stale';
   switch (progress.evidence.status) {
     case 'running': return progress.currentScript ? `Running ${progress.currentScript}` : 'Verifying';
     case 'passed': return 'Checks passed';
@@ -30,20 +31,22 @@ export function EvidencePanel({
   progress,
   manualRunning,
   onRunAll,
+  stale = false,
 }: {
   progress: VerificationProgress | null;
   manualRunning: boolean;
   onRunAll: () => void;
+  stale?: boolean;
 }) {
   const evidence = progress?.evidence ?? null;
   const resultByScript = new Map((evidence?.results ?? []).map((result) => [result.script, result]));
   const plan = evidence?.plan ?? [];
 
   return (
-    <div className="evidence-panel">
+    <div className={`evidence-panel ${stale ? 'stale' : ''}`}>
       <div className="evidence-header">
         <div>
-          <strong>{statusLabel(progress)}</strong>
+          <strong>{statusLabel(progress, stale)}</strong>
           <span>Deterministic project checks, not agent confidence.</span>
         </div>
         <button type="button" disabled={manualRunning || evidence?.status === 'running'} onClick={onRunAll}>
@@ -54,6 +57,12 @@ export function EvidencePanel({
       {!evidence ? (
         <div className="evidence-empty">
           Monument will run safe detected checks after Codex completes a turn. A completed turn alone is not proof that the product works.
+        </div>
+      ) : null}
+
+      {stale && evidence ? (
+        <div className="evidence-stale">
+          These checks belong to an older turn. Run or wait for current verification before treating them as evidence.
         </div>
       ) : null}
 
