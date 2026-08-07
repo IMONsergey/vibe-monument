@@ -24,11 +24,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Syntax and native source contract
+      - name: Install desktop dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript and native source contract
         run: npm run check
-      - name: Protocol and host tests
+      - name: Protocol regression tests
         run: npm test
-      - name: Static build
+      - name: Production web build
         run: npm run build
 
   native-macos:
