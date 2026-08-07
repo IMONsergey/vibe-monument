@@ -6,10 +6,6 @@ on:
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/monument-intel-alpha-release.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'builds/trigger-intel-alpha.txt'
   workflow_dispatch:
 
 concurrency:
@@ -21,7 +17,6 @@ permissions:
 
 jobs:
   build-intel-dmg:
-    if: github.event_name != 'pull_request' || github.head_ref == 'release/trigger-intel-alpha'
     name: Intel x86_64 DMG
     runs-on: macos-15-intel
     defaults:
@@ -50,6 +45,8 @@ jobs:
           npm run check
           npm test
           npm run build
+          cd src-tauri
+          cargo test --all-targets
 
       - name: Install prebuilt Tauri CLI
         run: npm install --no-save @tauri-apps/cli@latest
@@ -66,32 +63,34 @@ jobs:
         with:
           projectPath: apps/desktop
           tauriScript: npx tauri
-          tagName: monument-v0.2.0-alpha.1-intel
-          releaseName: 'Monument 0.2.0 Alpha 1 — Product Foundation — Intel Mac'
+          tagName: monument-v0.2.0-alpha.2-intel
+          releaseName: 'Monument 0.2.0 Alpha 2 — Protocol Gate — Intel Mac'
           releaseBody: |
-            First product-first Monument alpha built on the real native runtime rather than the decorative shell.
+            Product-first Monument alpha with the Codex protocol safety gate closed.
 
-            Included in this alpha:
-            - React + TypeScript production UI
-            - real local project picker and repository inspection
-            - framework, package-manager, script, Git and file-tree discovery
-            - managed local dev-server runtime and live preview URL detection
-            - real Codex app-server connection and task/thread projection
-            - bidirectional server-request awareness for approval safety
-            - local SQLite application state and project restore
-            - progressive-disclosure Under the hood surface
-            - production guard preventing mock-data regressions
+            Included:
+            - real local project inspection and managed live preview runtime
+            - real Codex task/thread projection and streaming turns
+            - current Codex turn input contract
+            - command, file-change and granular permission approvals
+            - inline Codex questions / request_user_input
+            - active turn interruption
+            - bounded retry for app-server saturation
+            - Codex-managed ChatGPT sign-in recovery
+            - actual Codex binary/version diagnostics
+            - installed-binary protocol schema generation/compatibility probe
+            - local SQLite state and progressive-disclosure engineering surfaces
+            - CI invariants preventing production mocks and protocol regressions
 
             Requirements:
             - Intel Mac (x86_64, including Core i9)
             - macOS 13 or newer
-            - OpenAI Codex CLI installed and authenticated
+            - OpenAI Codex CLI installed
 
-            Still intentionally incomplete:
-            - generated exact Codex approval bindings
-            - visual DOM inspector/source mapping
-            - deterministic evidence/review/ship gates
-            - Developer ID signing and notarization
+            Next major product gate:
+            - direct Select/Inspect on the live preview
+            - source/context attachment to Codex
+            - deterministic browser/evidence/review/repair gates
 
             This alpha uses ad-hoc signing and is not notarized yet. macOS may require allowing Monument in System Settings → Privacy & Security on first launch.
           releaseCommitish: main
@@ -114,12 +113,12 @@ jobs:
           from pathlib import Path
           Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
               'status': 'published',
-              'version': '0.2.0-alpha.1',
+              'version': '0.2.0-alpha.2',
               'architecture': 'x86_64-apple-darwin',
               'runner': 'macos-15-intel',
               'minimum_macos': '13.0',
               'release_url': os.environ.get('RELEASE_URL', ''),
-              'asset_name': 'Monument-0.2.0-alpha.1-Intel-x86_64.dmg',
+              'asset_name': 'Monument-0.2.0-alpha.2-Intel-x86_64.dmg',
               'artifact_paths': os.environ.get('ARTIFACT_PATHS', ''),
               'signing': 'ad-hoc',
               'notarized': False
@@ -134,7 +133,7 @@ jobs:
           from pathlib import Path
           Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
               'status': 'failed',
-              'version': '0.2.0-alpha.1',
+              'version': '0.2.0-alpha.2',
               'architecture': 'x86_64-apple-darwin',
               'runner': 'macos-15-intel'
           }, indent=2) + '\n')
