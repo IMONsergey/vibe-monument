@@ -6,13 +6,22 @@ on:
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/monument-intel-alpha-release.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'builds/trigger-intel-alpha.txt'
   workflow_dispatch:
+
+concurrency:
+  group: monument-intel-alpha-release
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
   build-intel-dmg:
+    if: github.event_name != 'pull_request' || github.head_ref == 'release/trigger-intel-alpha'
     name: Intel x86_64 DMG
     runs-on: macos-15-intel
     defaults:
@@ -65,6 +74,7 @@ jobs:
             - OpenAI Codex CLI installed and authenticated
 
             This alpha uses ad-hoc signing and is not notarized yet. macOS may require allowing Monument in System Settings → Privacy & Security on first launch.
+          releaseCommitish: main
           prerelease: true
           releaseDraft: false
           uploadUpdaterJson: false
@@ -73,20 +83,16 @@ jobs:
           releaseAssetNamePattern: 'Monument-[version]-Intel-x86_64.[ext]'
           args: '--target x86_64-apple-darwin --bundles dmg'
 
-      - name: Record successful Intel release
+      - name: Prepare successful release marker
         if: success()
         env:
           RELEASE_URL: ${{ steps.publish.outputs.releaseHtmlUrl }}
           ARTIFACT_PATHS: ${{ steps.publish.outputs.artifactPaths }}
-          RELEASE_SHA: ${{ github.sha }}
         run: |
           python3 - <<'PY'
           import json, os
           from pathlib import Path
-          root = Path('../..').resolve()
-          marker = root / 'builds' / 'monument-intel-alpha.json'
-          marker.parent.mkdir(parents=True, exist_ok=True)
-          marker.write_text(json.dumps({
+          Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
               'status': 'published',
               'version': '0.1.0-alpha.1',
               'architecture': 'x86_64-apple-darwin',
@@ -95,15 +101,37 @@ jobs:
               'release_url': os.environ.get('RELEASE_URL', ''),
               'asset_name': 'Monument-0.1.0-Intel-x86_64.dmg',
               'artifact_paths': os.environ.get('ARTIFACT_PATHS', ''),
-              'source_sha': os.environ.get('RELEASE_SHA', ''),
               'signing': 'ad-hoc',
               'notarized': False
           }, indent=2) + '\n')
           PY
+
+      - name: Prepare failed release marker
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
+              'status': 'failed',
+              'version': '0.1.0-alpha.1',
+              'architecture': 'x86_64-apple-darwin',
+              'runner': 'macos-15-intel'
+          }, indent=2) + '\n')
+          PY
+
+      - name: Persist release marker to main
+        if: always()
+        run: |
+          test -f /tmp/monument-intel-alpha.json || exit 0
           cd ../..
+          git fetch origin main
+          git checkout -B release-marker origin/main
+          mkdir -p builds
+          cp /tmp/monument-intel-alpha.json builds/monument-intel-alpha.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/monument-intel-alpha.json
           git diff --cached --quiet && exit 0
-          git commit -m 'chore: record published Intel alpha'
+          git commit -m 'chore: record Intel alpha release status'
           git push origin HEAD:main
