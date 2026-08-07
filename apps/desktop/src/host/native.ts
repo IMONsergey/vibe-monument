@@ -1,4 +1,4 @@
-import type { ProjectInspection } from '../types';
+import type { CodexProtocolProbe, CodexRuntimeInfo, ProjectInspection } from '../types';
 
 type Unlisten = () => void;
 
@@ -63,6 +63,14 @@ export async function stopRuntime(): Promise<void> {
 
 export async function runtimeStatus(): Promise<RuntimeInfo> {
   return invokeNative<RuntimeInfo>('runtime_status');
+}
+
+export async function codexStatus(): Promise<CodexRuntimeInfo> {
+  return invokeNative<CodexRuntimeInfo>('codex_status');
+}
+
+export async function probeCodexProtocol(): Promise<CodexProtocolProbe> {
+  return invokeNative<CodexProtocolProbe>('codex_protocol_probe');
 }
 
 export async function stateGet<T>(key: string): Promise<T | null> {
