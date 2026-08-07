@@ -47,8 +47,7 @@ export async function checkpointCompletedTurn({
   turnSerial: number;
 }): Promise<TimelineCheckpoint> {
   const prompt = pendingPrompts.get(project.id) ?? '';
-  pendingPrompts.delete(project.id);
-  return timelineSnapshot(project.rootPath, project.id, {
+  const checkpoint = await timelineSnapshot(project.rootPath, project.id, {
     kind: 'prompt',
     title: compactPrompt(prompt, 76) || `Version ${turnSerial}`,
     promptExcerpt: compactPrompt(prompt, 240) || null,
@@ -56,6 +55,8 @@ export async function checkpointCompletedTurn({
     codexTurnId,
     turnSerial,
   });
+  pendingPrompts.delete(project.id);
+  return checkpoint;
 }
 
 export async function saveTimelineVersion(
