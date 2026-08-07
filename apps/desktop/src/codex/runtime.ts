@@ -2,10 +2,11 @@ import type { ActivityItem, ApprovalRequest, CodexConnectionState, CodexThreadSu
 import { CodexClient } from './client';
 import { NativeCodexTransport, type RpcMessage } from './transport';
 
-type RuntimeSnapshot = {
+export type RuntimeSnapshot = {
   state: CodexConnectionState;
   threads: CodexThreadSummary[];
   activeThreadId: string | null;
+  activeTurnId: string | null;
   message: string;
   approval: ApprovalRequest | null;
   activity: ActivityItem[];
@@ -29,13 +30,21 @@ function asThread(value: unknown): CodexThreadSummary | null {
   };
 }
 
+function objectId(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === 'string' ? id : null;
+}
+
 export class CodexRuntime {
   private readonly client = new CodexClient(new NativeCodexTransport());
   private listeners = new Set<Listener>();
+  private connected = false;
   private snapshot: RuntimeSnapshot = {
     state: 'idle',
     threads: [],
     activeThreadId: null,
+    activeTurnId: null,
     message: '',
     approval: null,
     activity: [],
@@ -55,17 +64,23 @@ export class CodexRuntime {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener(this.snapshot);
-    return () => this.listeners.delete(listener);
+    return () => { this.listeners.delete(listener); };
   }
 
   async connect(projectRoot?: string): Promise<void> {
+    if (this.connected) {
+      await this.refreshThreads(projectRoot);
+      return;
+    }
     this.patch({ state: 'starting' });
     try {
       await this.client.connect();
+      this.connected = true;
       await this.refreshThreads(projectRoot);
       this.patch({ state: 'ready' });
       this.activity('system', 'Codex connected');
     } catch (error) {
+      this.connected = false;
       this.patch({ state: 'error' });
       this.activity('error', 'Codex is unavailable', String(error instanceof Error ? error.message : error));
       throw error;
@@ -73,6 +88,7 @@ export class CodexRuntime {
   }
 
   async refreshThreads(projectRoot?: string): Promise<void> {
+    if (!this.connected) return;
     const result = await this.client.listThreads({});
     const threads = (result.data ?? []).map(asThread).filter((thread): thread is CodexThreadSummary => Boolean(thread));
     const scoped = projectRoot ? threads.filter((thread) => !thread.cwd || thread.cwd === projectRoot || thread.cwd.startsWith(`${projectRoot}/`)) : threads;
@@ -85,10 +101,15 @@ export class CodexRuntime {
   }
 
   selectThread(threadId: string): void {
-    this.patch({ activeThreadId: threadId, message: '' });
+    this.patch({ activeThreadId: threadId, activeTurnId: null, message: '', approval: null });
+  }
+
+  newTask(): void {
+    this.patch({ activeThreadId: null, activeTurnId: null, message: '', approval: null });
   }
 
   async send(text: string, projectRoot: string): Promise<void> {
+    if (!this.connected) throw new Error('Codex is not connected');
     let threadId = this.snapshot.activeThreadId;
     if (!threadId) {
       const created = await this.client.startThread({ cwd: projectRoot });
@@ -99,20 +120,25 @@ export class CodexRuntime {
       this.patch({ threads: [thread, ...this.snapshot.threads], activeThreadId: thread.id });
     }
 
-    this.patch({ state: 'busy', message: '' });
+    this.patch({ state: 'busy', message: '', approval: null });
     this.activity('thinking', 'Working on your request', text.length > 110 ? `${text.slice(0, 107)}…` : text);
-    await this.client.startTurn(threadId, text, { cwd: projectRoot });
+    const started = await this.client.startTurn(threadId, text, { cwd: projectRoot });
+    const response = started as Record<string, unknown> | null;
+    const turnId = objectId(response?.turn ?? started);
+    if (turnId) this.patch({ activeTurnId: turnId });
   }
 
   async interrupt(): Promise<void> {
-    // The active turn id is intentionally not guessed from protocol shapes.
-    // It will be wired from generated Codex protocol types in the next protocol gate.
-    this.activity('system', 'Stop requested', 'Waiting for the active turn identifier from the protocol projection.');
+    const { activeThreadId, activeTurnId } = this.snapshot;
+    if (!activeThreadId || !activeTurnId) return;
+    await this.client.interruptTurn(activeThreadId, activeTurnId);
+    this.activity('system', 'Stop requested');
   }
 
   async close(): Promise<void> {
-    await this.client.close();
-    this.patch({ state: 'idle' });
+    if (this.connected) await this.client.close();
+    this.connected = false;
+    this.patch({ state: 'idle', activeTurnId: null });
   }
 
   private projectNotification(message: RpcMessage): void {
@@ -126,7 +152,7 @@ export class CodexRuntime {
         break;
       }
       case 'turn/started':
-        this.patch({ state: 'busy', message: '' });
+        this.patch({ state: 'busy', message: '', activeTurnId: objectId(params.turn) ?? this.snapshot.activeTurnId });
         break;
       case 'item/agentMessage/delta':
         if (typeof params.delta === 'string') this.patch({ message: this.snapshot.message + params.delta });
@@ -135,12 +161,12 @@ export class CodexRuntime {
         this.activity('edit', 'Changes updated');
         break;
       case 'turn/completed':
-        this.patch({ state: 'ready', approval: null });
-        this.activity('review', 'Request completed', 'Monument will attach deterministic verification as the runtime layer comes online.');
+        this.patch({ state: 'ready', approval: null, activeTurnId: null });
+        this.activity('review', 'Request completed', 'Verification gates will attach evidence before Monument marks work ready to ship.');
         break;
       case 'turn/failed':
       case 'error':
-        this.patch({ state: 'error' });
+        this.patch({ state: 'error', activeTurnId: null });
         this.activity('error', 'Codex run failed', JSON.stringify(params));
         break;
       default:
