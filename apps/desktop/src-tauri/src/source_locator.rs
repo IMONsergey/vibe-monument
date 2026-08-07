@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const MAX_FILES: usize = 1_200;
 const MAX_FILE_BYTES: u64 = 1_500_000;
+const MAX_TOTAL_BYTES: u64 = 32_000_000;
 const MAX_HINTS: usize = 8;
 
 #[derive(Debug, Default, Deserialize)]
@@ -28,6 +30,7 @@ pub struct SourceHint {
 #[derive(Debug, Clone)]
 struct SearchTerm {
     value: String,
+    lower: String,
     weight: u32,
 }
 
@@ -54,48 +57,57 @@ fn clean_term(value: &str, max: usize) -> Option<String> {
     Some(trimmed.chars().take(max).collect())
 }
 
+fn push_term(terms: &mut Vec<SearchTerm>, seen: &mut HashSet<String>, value: String, weight: u32) {
+    let lower = value.to_ascii_lowercase();
+    if seen.insert(lower.clone()) {
+        terms.push(SearchTerm { value, lower, weight });
+    }
+}
+
 fn query_terms(query: &SourceHintQuery) -> Vec<SearchTerm> {
     let mut terms = Vec::new();
+    let mut seen = HashSet::new();
     if let Some(id) = query.id.as_deref().and_then(|value| clean_term(value, 120)) {
-        terms.push(SearchTerm { value: id, weight: 28 });
+        push_term(&mut terms, &mut seen, id, 28);
     }
     for class in query.classes.iter().take(8) {
         if let Some(value) = clean_term(class, 120) {
-            terms.push(SearchTerm { value, weight: 11 });
+            push_term(&mut terms, &mut seen, value, 11);
         }
     }
     if let Some(text) = query.text.as_deref().and_then(|value| clean_term(value, 180)) {
         let weight = if text.len() >= 8 { 36 } else { 18 };
-        terms.push(SearchTerm { value: text, weight });
+        push_term(&mut terms, &mut seen, text, weight);
     }
     if let Some(selector) = query.selector.as_deref().and_then(|value| clean_term(value, 220)) {
         for token in selector.split(|ch: char| matches!(ch, ' ' | '>' | '#' | '.' | ':' | '[' | ']' | '(' | ')' | '=')) {
             let token = token.trim();
             if token.len() >= 3 && !token.chars().all(|ch| ch.is_ascii_digit()) {
-                terms.push(SearchTerm { value: token.chars().take(80).collect(), weight: 4 });
+                push_term(&mut terms, &mut seen, token.chars().take(80).collect(), 4);
             }
         }
     }
     terms.sort_by(|left, right| right.weight.cmp(&left.weight).then_with(|| left.value.cmp(&right.value)));
-    terms.dedup_by(|left, right| left.value.eq_ignore_ascii_case(&right.value));
     terms.truncate(18);
     terms
 }
 
-fn collect_sources(directory: &Path, files: &mut Vec<PathBuf>) {
-    if files.len() >= MAX_FILES {
+fn collect_sources(directory: &Path, files: &mut Vec<PathBuf>, total_bytes: &mut u64) {
+    if files.len() >= MAX_FILES || *total_bytes >= MAX_TOTAL_BYTES {
         return;
     }
     let Ok(entries) = fs::read_dir(directory) else { return; };
-    for entry in entries.filter_map(Result::ok) {
-        if files.len() >= MAX_FILES {
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
+        if files.len() >= MAX_FILES || *total_bytes >= MAX_TOTAL_BYTES {
             break;
         }
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         if path.is_dir() {
             if !should_skip_dir(&name) && !name.starts_with(".env") {
-                collect_sources(&path, files);
+                collect_sources(&path, files, total_bytes);
             }
             continue;
         }
@@ -103,7 +115,9 @@ fn collect_sources(directory: &Path, files: &mut Vec<PathBuf>) {
             continue;
         }
         let Ok(metadata) = entry.metadata() else { continue; };
-        if metadata.len() <= MAX_FILE_BYTES {
+        let size = metadata.len();
+        if size <= MAX_FILE_BYTES && total_bytes.saturating_add(size) <= MAX_TOTAL_BYTES {
+            *total_bytes += size;
             files.push(path);
         }
     }
@@ -111,11 +125,7 @@ fn collect_sources(directory: &Path, files: &mut Vec<PathBuf>) {
 
 fn score_line(line: &str, terms: &[SearchTerm]) -> u32 {
     let lower = line.to_ascii_lowercase();
-    terms
-        .iter()
-        .filter(|term| lower.contains(&term.value.to_ascii_lowercase()))
-        .map(|term| term.weight)
-        .sum()
+    terms.iter().filter(|term| lower.contains(&term.lower)).map(|term| term.weight).sum()
 }
 
 fn best_hint(root: &Path, path: &Path, terms: &[SearchTerm]) -> Option<SourceHint> {
@@ -147,7 +157,8 @@ fn locate(root: &Path, query: &SourceHintQuery) -> Vec<SourceHint> {
         return Vec::new();
     }
     let mut files = Vec::new();
-    collect_sources(root, &mut files);
+    let mut total_bytes = 0;
+    collect_sources(root, &mut files, &mut total_bytes);
     let mut hints: Vec<_> = files.iter().filter_map(|path| best_hint(root, path, &terms)).collect();
     hints.sort_by(|left, right| right.score.cmp(&left.score).then_with(|| left.path.cmp(&right.path)).then_with(|| left.line.cmp(&right.line)));
     hints.truncate(MAX_HINTS);
@@ -165,7 +176,7 @@ pub fn project_source_hints(project_path: String, query: SourceHintQuery) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::{query_terms, score_line, SourceHintQuery};
+    use super::{query_terms, score_line, SourceHintQuery, MAX_TOTAL_BYTES};
 
     #[test]
     fn exact_rendered_text_outweighs_generic_selector_tokens() {
@@ -189,5 +200,10 @@ mod tests {
         };
         let terms = query_terms(&query);
         assert!(score_line("id=\"pricing-cta\" className=\"cta-button\"", &terms) >= 39);
+    }
+
+    #[test]
+    fn total_scan_budget_is_intentionally_bounded() {
+        assert!(MAX_TOTAL_BYTES <= 32_000_000);
     }
 }
