@@ -2,11 +2,13 @@ mod codex_runtime;
 mod persistence;
 mod process_runtime;
 mod project_runtime;
+mod system_runtime;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use persistence::{state_get, state_set};
 use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
+use system_runtime::system_open_external;
 use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -25,6 +27,7 @@ pub fn run() {
             runtime_start,
             runtime_status,
             runtime_stop,
+            system_open_external,
             state_get,
             state_set
         ])
