@@ -10,6 +10,11 @@ export const state = {
   theme: 'light',
   paletteOpen: false,
   paletteQuery: '',
+  codexStatus: 'connecting',
+  codexMode: 'demo',
+  codexThreads: [],
+  activeThreadId: 'thread-1',
+  codexMessage: '',
 };
 
 const listeners = new Set();

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "python3 -m http.server 4173 -d .",
-    "check": "find src native -type f | grep -E '\\.(js|mjs)$' | xargs -n1 node --check",
+    "check": "find src native -type f | grep -E '\\.(js|mjs)$' | xargs -n1 node --check && node scripts/check_native_source.mjs",
     "test": "node --test tests/*.test.js",
     "build": "node scripts/build_static.mjs"
   }

@@ -51,3 +51,9 @@ See:
 ## Important boundary
 
 Monument does not implement its own coding agent. The production app is designed as a client of the official `codex app-server` JSON-RPC interface and keeps Codex responsible for threads, turns, tools, sandboxing, approvals, and agent execution.
+
+## Native M1 source
+
+`src-tauri/` now contains the first Tauri 2 macOS host boundary. It starts one managed `codex app-server --stdio` process, emits Codex JSON-RPC messages into the frontend, and exposes only bounded runtime commands (`start`, `send`, `status`, `stop`). The browser build uses an in-memory demo transport through the same `CodexAppServerClient`, so product work remains executable before the native toolchain is available.
+
+The current build environment does not contain `rustc`/`cargo`, so Rust compilation is not claimed yet. `npm run check` validates the native source/config contract and all JavaScript protocol/host tests run in CI.

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Core event capabilities for the Monument main window.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
