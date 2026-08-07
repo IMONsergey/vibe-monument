@@ -23,6 +23,8 @@ const entry = await readFile(join(root, 'src/main.tsx'), 'utf8');
 const approval = await readFile(join(root, 'src/components/ApprovalCard.tsx'), 'utf8');
 const diagnostics = await readFile(join(root, 'src/components/DiagnosticsPanel.tsx'), 'utf8');
 const versionPanel = await readFile(join(root, 'src/components/VersionTimelinePanel.tsx'), 'utf8');
+const promptQueue = await readFile(join(root, 'src/components/PromptQueue.tsx'), 'utf8');
+const queueController = await readFile(join(root, 'src/queue/controller.ts'), 'utf8');
 const timelineController = await readFile(join(root, 'src/timeline/controller.ts'), 'utf8');
 const nativePreview = await readFile(join(root, 'src/preview/NativePreview.tsx'), 'utf8');
 const selection = await readFile(join(root, 'src/preview/selection.ts'), 'utf8');
@@ -100,7 +102,18 @@ for (const token of ['history-controls', 'VersionTimelinePanel', 'checkpointComp
 }
 if (!entry.includes("./styles/timeline.css")) throw new Error('Version Timeline styles are not loaded');
 
-const productionSource = `${entry}\n${app}\n${approval}\n${diagnostics}\n${nativePreview}\n${selection}\n${turnContext}\n${versionPanel}\n${timelineController}`;
+for (const token of ['MAX_QUEUE_ITEMS = 20', 'prompt-queue:', 'pauseRestored', 'threadId: string | null', 'detachPromptQueueThreads', 'takeNextPrompt', 'restoreQueuedPromptToFront']) {
+  if (!queueController.includes(token)) throw new Error(`Prompt Queue controller missing ${token}`);
+}
+for (const token of ['Queue paused', 'Blocked by current failed evidence', 'Continue anyway', 'onMove', 'onRemove']) {
+  if (!promptQueue.includes(token)) throw new Error(`Prompt Queue product UX missing ${token}`);
+}
+for (const token of ['postTurnPending = workspace.completionSerial > handledCompletionSerial.current', 'enqueuePrompt(project.id, text, capturedSelection, workspace.activeThreadId)', 'takeNextPrompt(projectId)', 'activeProjectIdRef.current !== projectId', 'queueBlockedByEvidence', 'setQueueFailureOverride(currentCodeTurnSerial)']) {
+  if (!app.includes(token)) throw new Error(`Prompt Queue orchestration missing ${token}`);
+}
+if (!entry.includes("./styles/queue.css")) throw new Error('Prompt Queue styles are not loaded');
+
+const productionSource = `${entry}\n${app}\n${approval}\n${diagnostics}\n${nativePreview}\n${selection}\n${turnContext}\n${versionPanel}\n${timelineController}\n${promptQueue}\n${queueController}`;
 if (productionSource.includes('mock-data') || productionSource.includes('BrowserDemoCodexTransport')) throw new Error('Production Monument entrypoint must never depend on mock product data');
 if (!app.includes('Tell Monument what to build or change')) throw new Error('Product-first composer contract drifted');
 if (!app.includes('Under the hood')) throw new Error('Progressive disclosure developer surface is missing');
@@ -117,10 +130,10 @@ for (const token of ['preview_open', 'preview_set_bounds', 'preview_set_inspect'
 for (const token of ['[Monument live element context]', 'Selector:', 'Computed styles:', 'Locate the owning source/component']) {
   if (!selection.includes(token)) throw new Error(`Live selection context compiler missing ${token}`);
 }
-for (const token of ['project_source_hints', '[Monument deterministic source hints]', 'search-ranked hints', 'selectionContext(selection)']) {
+for (const token of ['project_source_hints', '[Monument deterministic source hints]', 'search-ranked hints', 'selectionContext(selection)', 'capturedSelection']) {
   if (!turnContext.includes(token)) throw new Error(`Selected turn enrichment missing ${token}`);
 }
-if (!app.includes('await compileTurnText(text, project.rootPath)')) throw new Error('Selected live/source context is not awaited before starting the Codex turn');
+if (!app.includes('await compileTurnText(text, project.rootPath, capturedSelection)')) throw new Error('Captured live/source context is not awaited before starting direct or queued Codex turns');
 
 for (const token of ['onServerRequest', 'respond(', 'respondError(', '-32001', "input: [{ type: 'text', text }]", 'account/read', 'account/login/start']) {
   if (!codexClient.includes(token)) throw new Error(`Codex client protocol gate missing ${token}`);
@@ -133,4 +146,4 @@ for (const source of [codex, processRuntime, previewRuntime, sourceLocator, syst
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/timeline/release contract: PASS`);
+console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/timeline/queue/release contract: PASS`);
