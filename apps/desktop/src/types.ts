@@ -122,6 +122,7 @@ export interface WorkspaceState {
   threads: CodexThreadSummary[];
   codexState: CodexConnectionState;
   codexMessage: string;
+  turnSerial: number;
   completionSerial: number;
   account: CodexAccountSnapshot | null;
   approval: ApprovalRequest | null;
