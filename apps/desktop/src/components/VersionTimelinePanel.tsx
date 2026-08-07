@@ -9,11 +9,11 @@ function timeLabel(timestamp: number): string {
   }
 }
 
-function versionLabel(checkpoint: TimelineCheckpoint): string {
+function versionLabel(checkpoint: TimelineCheckpoint, visibleNumber: number | null): string {
   if (checkpoint.kind === 'baseline') return 'Original';
   if (checkpoint.kind === 'restore-safety') return 'Safety';
   if (checkpoint.kind === 'external') return 'External';
-  return `V${checkpoint.sequence}`;
+  return visibleNumber == null ? 'Version' : `V${visibleNumber}`;
 }
 
 function checkpointKindLabel(checkpoint: TimelineCheckpoint): string | null {
@@ -49,7 +49,13 @@ export function VersionTimelinePanel({
   const checkpoints = state?.checkpoints ?? [];
   const byId = new Map(checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]));
   const childCounts = new Map<string, number>();
+  const visibleNumberById = new Map<string, number>();
+  let visibleNumber = 0;
   for (const checkpoint of checkpoints) {
+    if (checkpoint.kind === 'prompt' || checkpoint.kind === 'manual') {
+      visibleNumber += 1;
+      visibleNumberById.set(checkpoint.id, visibleNumber);
+    }
     if (!checkpoint.parentId) continue;
     childCounts.set(checkpoint.parentId, (childCounts.get(checkpoint.parentId) ?? 0) + 1);
   }
@@ -91,7 +97,7 @@ export function VersionTimelinePanel({
           return (
             <article className={`timeline-card ${isCurrent ? 'current' : ''} ${alternative ? 'alternative' : ''}`} key={checkpoint.id}>
               <div className="timeline-card-top">
-                <span className="timeline-version">{versionLabel(checkpoint)}</span>
+                <span className="timeline-version">{versionLabel(checkpoint, visibleNumberById.get(checkpoint.id) ?? null)}</span>
                 <span className="timeline-time">{timeLabel(checkpoint.createdAt)}</span>
                 {isCurrent ? <span className="timeline-badge current">Current</span> : null}
                 {alternative ? <span className="timeline-badge">Alternative</span> : null}
