@@ -9,6 +9,7 @@ const codex = await readFile(join(root, 'src-tauri/src/codex_runtime.rs'), 'utf8
 const project = await readFile(join(root, 'src-tauri/src/project_runtime.rs'), 'utf8');
 const processRuntime = await readFile(join(root, 'src-tauri/src/process_runtime.rs'), 'utf8');
 const persistence = await readFile(join(root, 'src-tauri/src/persistence.rs'), 'utf8');
+const systemRuntime = await readFile(join(root, 'src-tauri/src/system_runtime.rs'), 'utf8');
 const app = await readFile(join(root, 'src/App.tsx'), 'utf8');
 const entry = await readFile(join(root, 'src/main.tsx'), 'utf8');
 const codexClient = await readFile(join(root, 'src/codex/client.ts'), 'utf8');
@@ -31,6 +32,9 @@ for (const token of ['runtime_start', 'runtime_stop', 'monument://runtime-output
 for (const token of ['monument.sqlite', 'CREATE TABLE IF NOT EXISTS app_state', 'state_get', 'state_set']) {
   if (!persistence.includes(token)) throw new Error(`Persistence runtime missing ${token}`);
 }
+for (const token of ['system_open_external', '/usr/bin/open', 'https://']) {
+  if (!systemRuntime.includes(token)) throw new Error(`System runtime auth boundary missing ${token}`);
+}
 
 const productionSource = `${entry}\n${app}`;
 if (productionSource.includes('mock-data') || productionSource.includes('BrowserDemoCodexTransport')) {
@@ -39,8 +43,9 @@ if (productionSource.includes('mock-data') || productionSource.includes('Browser
 if (!app.includes('Tell Monument what to build or change')) throw new Error('Product-first composer contract drifted');
 if (!app.includes('Under the hood')) throw new Error('Progressive disclosure developer surface is missing');
 if (!app.includes('Run checks') || !app.includes('Codex wants to run a command')) throw new Error('Protocol diagnostics/approval UX is missing');
+if (!app.includes('Sign in with ChatGPT') || !app.includes('auth-required')) throw new Error('Codex managed auth recovery UX is missing');
 
-for (const token of ['onServerRequest', 'respond(', 'respondError(', '-32001', "input: [{ type: 'text', text }]"]) {
+for (const token of ['onServerRequest', 'respond(', 'respondError(', '-32001', "input: [{ type: 'text', text }]", 'account/read', 'account/login/start']) {
   if (!codexClient.includes(token)) throw new Error(`Codex client protocol gate missing ${token}`);
 }
 if (codexClient.includes('textElements')) throw new Error('Legacy textElements payload must not return to turn/start');
@@ -50,14 +55,17 @@ for (const token of [
   'item/permissions/requestApproval',
   'item/tool/requestUserInput',
   'serverRequest/resolved',
+  'account/login/completed',
+  'account/updated',
   'resolveApproval',
   'answerUserInput',
+  'startChatGptLogin',
 ]) {
   if (!codexProjection.includes(token)) throw new Error(`Codex runtime projection missing ${token}`);
 }
 
-for (const source of [codex, processRuntime]) {
+for (const source of [codex, processRuntime, systemRuntime]) {
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log('Monument production/native/protocol source contract: PASS');
+console.log('Monument production/native/protocol/auth source contract: PASS');
