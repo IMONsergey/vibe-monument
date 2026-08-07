@@ -1,8 +1,12 @@
+use crate::browser_evidence::{collect_script, parse_title_payload, BROWSER_EVIDENCE_SCRIPT};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
 const PREVIEW_LABEL: &str = "monument-preview";
 const SELECTION_PREFIX: &str = "__MONUMENT_SELECTION__:";
+static BROWSER_EVIDENCE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 const PREVIEW_INSPECTOR_SCRIPT: &str = r#"
 (() => {
@@ -249,13 +253,20 @@ pub async fn preview_open(app: tauri::AppHandle, url: String, bounds: PreviewBou
     let event_app = app.clone();
 
     let builder = tauri::webview::WebviewBuilder::new(PREVIEW_LABEL, WebviewUrl::External(parsed))
-        .initialization_script(PREVIEW_INSPECTOR_SCRIPT)
+        .initialization_script(format!("{PREVIEW_INSPECTOR_SCRIPT}\n{BROWSER_EVIDENCE_SCRIPT}"))
         .on_navigation(move |candidate| same_origin(&allowed_origin, candidate))
         .on_document_title_changed(move |_webview, title| {
-            let Some(json) = title.strip_prefix(SELECTION_PREFIX) else { return; };
-            match serde_json::from_str::<PreviewSelection>(json) {
-                Ok(selection) => { let _ = event_app.emit("monument://preview-selection", selection); }
-                Err(error) => { let _ = event_app.emit("monument://preview-error", format!("Invalid preview selection payload: {error}")); }
+            if let Some(json) = title.strip_prefix(SELECTION_PREFIX) {
+                match serde_json::from_str::<PreviewSelection>(json) {
+                    Ok(selection) => { let _ = event_app.emit("monument://preview-selection", selection); }
+                    Err(error) => { let _ = event_app.emit("monument://preview-error", format!("Invalid preview selection payload: {error}")); }
+                }
+                return;
+            }
+            match parse_title_payload(&title) {
+                Ok(Some(snapshot)) => { let _ = event_app.emit("monument://preview-browser-evidence", snapshot); }
+                Ok(None) => {}
+                Err(error) => { let _ = event_app.emit("monument://preview-error", error); }
             }
         });
 
@@ -282,6 +293,30 @@ pub fn preview_set_inspect(app: tauri::AppHandle, enabled: bool) -> Result<(), S
     let webview = app.get_webview(PREVIEW_LABEL).ok_or_else(|| "Preview webview is not open".to_string())?;
     webview
         .eval(format!("window.__MONUMENT_SET_INSPECT__ && window.__MONUMENT_SET_INSPECT__({enabled});"))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn preview_install_browser_evidence(app: tauri::AppHandle) -> Result<(), String> {
+    let webview = app.get_webview(PREVIEW_LABEL).ok_or_else(|| "Preview webview is not open".to_string())?;
+    webview.eval(BROWSER_EVIDENCE_SCRIPT).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn preview_collect_browser_evidence(app: tauri::AppHandle) -> Result<String, String> {
+    let webview = app.get_webview(PREVIEW_LABEL).ok_or_else(|| "Preview webview is not open".to_string())?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+    let counter = BROWSER_EVIDENCE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let request_id = format!("browser-{now}-{counter}");
+    webview.eval(collect_script(&request_id)?).map_err(|error| error.to_string())?;
+    Ok(request_id)
+}
+
+#[tauri::command]
+pub fn preview_clear_browser_evidence(app: tauri::AppHandle) -> Result<(), String> {
+    let webview = app.get_webview(PREVIEW_LABEL).ok_or_else(|| "Preview webview is not open".to_string())?;
+    webview
+        .eval("window.__MONUMENT_BROWSER_EVIDENCE__ && window.__MONUMENT_BROWSER_EVIDENCE__.clear();")
         .map_err(|error| error.to_string())
 }
 
