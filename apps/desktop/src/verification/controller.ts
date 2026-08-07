@@ -1,4 +1,5 @@
 import { invokeNative, stateGet, stateSet } from '../host/native';
+import { currentTimelineTurnSerial } from '../timeline/controller';
 import { recordTimelineDeterministicQuality, type TimelineDeterministicStatus } from '../timeline/quality';
 
 export interface VerificationPlanItem {
@@ -142,11 +143,14 @@ export async function runVerification({
   includeManual?: boolean;
   turnSerial?: number;
 }): Promise<VerificationEvidence> {
+  const resolvedTurnSerial = trigger === 'manual'
+    ? (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial)) ?? 0
+    : turnSerial;
   let plan: VerificationPlanItem[] = [];
   try {
     plan = await loadVerificationPlan(projectRoot);
   } catch (error) {
-    const evidence = newEvidence(projectId, projectRoot, trigger, [], turnSerial);
+    const evidence = newEvidence(projectId, projectRoot, trigger, [], resolvedTurnSerial);
     evidence.status = 'error';
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
@@ -155,7 +159,7 @@ export async function runVerification({
     return evidence;
   }
 
-  const evidence = newEvidence(projectId, projectRoot, trigger, plan, turnSerial);
+  const evidence = newEvidence(projectId, projectRoot, trigger, plan, resolvedTurnSerial);
   const selected = plan.filter((item) => includeManual || item.automatic).slice(0, 5);
   if (!selected.length) {
     evidence.status = 'no-checks';
