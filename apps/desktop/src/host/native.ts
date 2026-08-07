@@ -121,6 +121,10 @@ export async function timelineForward(projectPath: string, projectId: string): P
   return invokeNative<TimelineRestoreResult>('timeline_forward', { projectPath, projectId });
 }
 
+export async function timelineSetActivePath(projectId: string, pathId: string): Promise<void> {
+  await invokeNative<void>('timeline_set_active_path', { projectId, pathId });
+}
+
 export async function timelineDiff(
   projectPath: string,
   projectId: string,
