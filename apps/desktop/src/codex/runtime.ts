@@ -1,7 +1,9 @@
 import type {
   ActivityItem,
   ApprovalRequest,
+  CodexAccountSnapshot,
   CodexConnectionState,
+  CodexLoginStart,
   CodexThreadSummary,
   SimpleApprovalDecision,
   UserInputQuestion,
@@ -15,6 +17,7 @@ export type RuntimeSnapshot = {
   activeThreadId: string | null;
   activeTurnId: string | null;
   message: string;
+  account: CodexAccountSnapshot | null;
   approval: ApprovalRequest | null;
   activity: ActivityItem[];
 };
@@ -40,6 +43,31 @@ function asThread(value: unknown): CodexThreadSummary | null {
     title: typeof record.name === 'string' ? record.name : typeof record.title === 'string' ? record.title : undefined,
     cwd: typeof record.cwd === 'string' ? record.cwd : undefined,
     status: typeof record.status === 'string' ? record.status : undefined,
+  };
+}
+
+function asAccount(value: unknown): CodexAccountSnapshot {
+  const result = recordOf(value);
+  const accountValue = result.account;
+  const account = accountValue && typeof accountValue === 'object' ? accountValue as Record<string, unknown> : null;
+  const requiresOpenaiAuth = result.requiresOpenaiAuth !== false;
+  return {
+    accountType: account && typeof account.type === 'string' ? account.type : null,
+    email: account && typeof account.email === 'string' ? account.email : null,
+    planType: account && typeof account.planType === 'string' ? account.planType : null,
+    requiresOpenaiAuth,
+    readyForTurns: !requiresOpenaiAuth || Boolean(account),
+  };
+}
+
+function asLoginStart(value: unknown): CodexLoginStart {
+  const result = recordOf(value);
+  return {
+    type: typeof result.type === 'string' ? result.type : 'chatgpt',
+    loginId: typeof result.loginId === 'string' ? result.loginId : null,
+    authUrl: typeof result.authUrl === 'string' ? result.authUrl : null,
+    verificationUrl: typeof result.verificationUrl === 'string' ? result.verificationUrl : null,
+    userCode: typeof result.userCode === 'string' ? result.userCode : null,
   };
 }
 
@@ -112,6 +140,7 @@ export class CodexRuntime {
     activeThreadId: null,
     activeTurnId: null,
     message: '',
+    account: null,
     approval: null,
     activity: [],
   };
@@ -129,22 +158,40 @@ export class CodexRuntime {
 
   async connect(projectRoot?: string): Promise<void> {
     if (this.connected) {
-      await this.refreshThreads(projectRoot);
+      await Promise.all([this.refreshThreads(projectRoot), this.refreshAccount(false)]);
       return;
     }
     this.patch({ state: 'starting' });
     try {
       await this.client.connect();
       this.connected = true;
+      const account = await this.refreshAccount(false);
       await this.refreshThreads(projectRoot);
-      this.patch({ state: 'ready' });
-      this.activity('system', 'Codex connected');
+      this.patch({ state: account.readyForTurns ? 'ready' : 'auth-required' });
+      this.activity('system', account.readyForTurns ? 'Codex connected' : 'Codex sign-in required', account.email ?? undefined);
     } catch (error) {
       this.connected = false;
       this.patch({ state: 'error' });
       this.activity('error', 'Codex is unavailable', String(error instanceof Error ? error.message : error));
       throw error;
     }
+  }
+
+  async refreshAccount(refreshToken = false): Promise<CodexAccountSnapshot> {
+    if (!this.connected) throw new Error('Codex is not connected');
+    const account = asAccount(await this.client.readAccount(refreshToken));
+    const nextState = account.readyForTurns
+      ? (this.snapshot.state === 'auth-required' ? 'ready' : this.snapshot.state)
+      : (this.snapshot.state === 'busy' || this.snapshot.state === 'approval' ? this.snapshot.state : 'auth-required');
+    this.patch({ account, state: nextState });
+    return account;
+  }
+
+  async startChatGptLogin(): Promise<CodexLoginStart> {
+    if (!this.connected) throw new Error('Codex is not connected');
+    const login = asLoginStart(await this.client.startChatGptLogin());
+    this.activity('system', 'ChatGPT sign-in started');
+    return login;
   }
 
   async refreshThreads(projectRoot?: string): Promise<void> {
@@ -170,6 +217,7 @@ export class CodexRuntime {
 
   async send(text: string, projectRoot: string): Promise<void> {
     if (!this.connected) throw new Error('Codex is not connected');
+    if (this.snapshot.account && !this.snapshot.account.readyForTurns) throw new Error('Sign in to Codex before starting a task');
     let threadId = this.snapshot.activeThreadId;
     if (!threadId) {
       const created = await this.client.startThread({ cwd: projectRoot });
@@ -240,7 +288,7 @@ export class CodexRuntime {
   async close(): Promise<void> {
     if (this.connected) await this.client.close();
     this.connected = false;
-    this.patch({ state: 'idle', activeTurnId: null });
+    this.patch({ state: 'idle', activeTurnId: null, account: null });
   }
 
   private async handleServerRequest(message: Required<Pick<RpcMessage, 'id' | 'method'>> & RpcMessage): Promise<void> {
@@ -353,8 +401,20 @@ export class CodexRuntime {
         if (this.snapshot.approval && requestId === this.snapshot.approval.id) this.patch({ approval: null, state: 'busy' });
         break;
       }
+      case 'account/updated':
+        void this.refreshAccount(false).catch((error) => this.activity('error', 'Could not refresh Codex account', String(error instanceof Error ? error.message : error)));
+        break;
+      case 'account/login/completed':
+        if (params.success === true) {
+          this.activity('system', 'ChatGPT sign-in completed');
+          void this.refreshAccount(true).catch((error) => this.activity('error', 'Could not refresh Codex account', String(error instanceof Error ? error.message : error)));
+        } else {
+          this.patch({ state: 'auth-required' });
+          this.activity('error', 'ChatGPT sign-in failed', typeof params.error === 'string' ? params.error : undefined);
+        }
+        break;
       case 'turn/completed':
-        this.patch({ state: 'ready', approval: null, activeTurnId: null });
+        this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', approval: null, activeTurnId: null });
         this.activity('review', 'Request completed', 'Verification gates will attach evidence before Monument marks work ready to ship.');
         break;
       case 'turn/failed':
