@@ -4,8 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const conf = JSON.parse(await readFile(join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const capability = JSON.parse(await readFile(join(root, 'src-tauri/capabilities/main-capability.json'), 'utf8'));
 const cargo = await readFile(join(root, 'src-tauri/Cargo.toml'), 'utf8');
+const releaseWorkflow = await readFile(join(root, '../../.github/workflows/monument-intel-alpha-release.yml'), 'utf8');
+const versionModule = await readFile(join(root, 'src/version.ts'), 'utf8');
 const codex = await readFile(join(root, 'src-tauri/src/codex_runtime.rs'), 'utf8');
 const project = await readFile(join(root, 'src-tauri/src/project_runtime.rs'), 'utf8');
 const processRuntime = await readFile(join(root, 'src-tauri/src/process_runtime.rs'), 'utf8');
@@ -28,6 +31,15 @@ if (conf.build?.frontendDist !== '../dist') throw new Error('Tauri frontendDist 
 if (conf.app?.windows?.[0]?.titleBarStyle !== 'Overlay') throw new Error('macOS title bar contract drifted');
 if (!capability.permissions?.includes('core:default')) throw new Error('main capability must permit core event/listen APIs');
 if (!cargo.includes('features = ["unstable"]')) throw new Error('Native child preview currently requires the explicit Tauri unstable feature');
+
+const cargoVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+const uiVersion = versionModule.match(/MONUMENT_VERSION\s*=\s*'([^']+)'/)?.[1];
+const versions = [packageJson.version, conf.version, cargoVersion, uiVersion];
+if (versions.some((version) => version !== packageJson.version)) throw new Error(`Monument version drift: ${versions.join(' | ')}`);
+if (!releaseWorkflow.includes(`MONUMENT_VERSION: '${packageJson.version}'`)) throw new Error('Intel release workflow version drifted from the app version');
+if (!releaseWorkflow.includes(`monument-v${packageJson.version}-intel`)) throw new Error('Intel release tag drifted from the app version');
+if (!releaseWorkflow.includes('hdiutil attach') || !releaseWorkflow.includes('lipo -archs') || !releaseWorkflow.includes('gh release create')) throw new Error('Intel release must build, mount/smoke and publish the explicit DMG');
+if (!releaseWorkflow.includes('failed_stage')) throw new Error('Intel release failure marker must identify the failed stage');
 
 for (const token of ['app-server', '--stdio', 'monument://codex-message', 'codex_send', 'codex_stop', 'codex_protocol_probe', 'generate-json-schema']) {
   if (!codex.includes(token)) throw new Error(`Native Codex runtime missing ${token}`);
@@ -85,4 +97,4 @@ for (const source of [codex, processRuntime, previewRuntime, sourceLocator, syst
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log('Monument production/native/protocol/auth/preview/select/source-hints contract: PASS');
+console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/source-hints/release contract: PASS`);
