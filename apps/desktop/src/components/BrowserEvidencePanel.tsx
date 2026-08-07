@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import type { BrowserEvidenceRecord } from '../browser/evidence';
+import { requestBrowserRepair } from '../repair/controller';
 
 function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -26,6 +28,15 @@ export function BrowserEvidencePanel({
   const slowRequests = snapshot?.network.filter((event) => !event.failed) ?? [];
   const consoleErrors = snapshot?.console.filter((event) => event.level === 'error') ?? [];
   const consoleWarnings = snapshot?.console.filter((event) => event.level === 'warn') ?? [];
+  const hasRepairableIssues = Boolean(record && !record.stale && ((snapshot?.runtime.length ?? 0) > 0 || consoleErrors.length > 0 || failedRequests.length > 0));
+  const [repairRequested, setRepairRequested] = useState(false);
+
+  useEffect(() => setRepairRequested(false), [record?.snapshot.requestId]);
+
+  const fixBrowserIssues = async () => {
+    if (!record || !hasRepairableIssues || repairRequested) return;
+    if (await requestBrowserRepair(record)) setRepairRequested(true);
+  };
 
   return (
     <section className={`browser-evidence ${record?.stale ? 'stale' : ''}`}>
@@ -34,9 +45,16 @@ export function BrowserEvidencePanel({
           <strong>Browser evidence</strong>
           <span>{record?.stale ? 'Previous capture is stale after newer work.' : 'Observed from the real live preview.'}</span>
         </div>
-        <button type="button" disabled={!previewAvailable || running} onClick={onCapture}>
-          {running ? 'Capturing…' : 'Capture now'}
-        </button>
+        <div className="browser-evidence-actions">
+          {hasRepairableIssues ? (
+            <button type="button" className="fix-evidence-button" disabled={running || repairRequested} onClick={() => void fixBrowserIssues()}>
+              {repairRequested ? 'Repair requested' : 'Fix with Monument'}
+            </button>
+          ) : null}
+          <button type="button" disabled={!previewAvailable || running} onClick={onCapture}>
+            {running ? 'Capturing…' : 'Capture now'}
+          </button>
+        </div>
       </div>
 
       {!previewAvailable ? <div className="browser-evidence-empty">Start the live preview to collect runtime/browser evidence.</div> : null}
