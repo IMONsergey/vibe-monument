@@ -1,11 +1,13 @@
 mod codex_runtime;
 mod persistence;
+mod preview_runtime;
 mod process_runtime;
 mod project_runtime;
 mod system_runtime;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use persistence::{state_get, state_set};
+use preview_runtime::{preview_close, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
 use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
 use system_runtime::system_open_external;
@@ -27,6 +29,11 @@ pub fn run() {
             runtime_start,
             runtime_status,
             runtime_stop,
+            preview_open,
+            preview_set_bounds,
+            preview_set_inspect,
+            preview_reload,
+            preview_close,
             system_open_external,
             state_get,
             state_set
