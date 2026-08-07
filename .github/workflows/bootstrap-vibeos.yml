@@ -1,0 +1,38 @@
+name: Materialize VibeOS release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-vibeos.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify and extract exact release payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/payload.part* | base64 -d > /tmp/vibeos.tar.xz
+          echo '82b7f50357226bc602db9a347b8f7d5187e955db0821cde27e24207ab2693a7f  /tmp/vibeos.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/vibeos.tar.xz
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-vibeos.yml
+
+      - name: Commit exact Codex-native release tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: release Codex-native VibeOS 2'
+          git push
