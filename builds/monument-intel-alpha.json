@@ -6,7 +6,7 @@
   "minimum_macos": "13.0",
   "release_url": "https://github.com/IMONsergey/vibe-monument/releases/tag/monument-v0.2.0-alpha.3-intel",
   "asset_name": "Monument-0.2.0-alpha.3-Intel-x86_64.dmg",
-  "sha256": "5c3bba4af8666d4ac1a3bc1df9f997edf39c1c10e937ada20e0d9b147eea1622",
+  "sha256": "91e0f3d7f0830d951ab4032cceee4934682cc835b14071d3545ef6864516ff1e",
   "signing": "ad-hoc",
   "notarized": false,
   "verified_dmg_mount": true,
