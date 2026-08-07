@@ -28,6 +28,7 @@ type Listener = (snapshot: RuntimeSnapshot) => void;
 type ItemContext = { type?: string; command?: string; cwd?: string; changedPaths?: string[] };
 
 const SIMPLE_DECISIONS = new Set<SimpleApprovalDecision>(['accept', 'acceptForSession', 'decline', 'cancel']);
+const TIMELINE_RESTORED_EVENT = 'monument:timeline-restored';
 
 function nowId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -152,6 +153,9 @@ export class CodexRuntime {
   constructor() {
     this.client.onNotification((message) => this.projectNotification(message));
     this.client.onServerRequest((message) => void this.handleServerRequest(message));
+    if (typeof window !== 'undefined') {
+      window.addEventListener(TIMELINE_RESTORED_EVENT, this.handleTimelineRestore);
+    }
   }
 
   subscribe(listener: Listener): () => void {
@@ -294,6 +298,12 @@ export class CodexRuntime {
     this.connected = false;
     this.patch({ state: 'idle', activeTurnId: null, account: null });
   }
+
+  private readonly handleTimelineRestore = () => {
+    if (this.snapshot.activeTurnId || this.snapshot.state === 'busy' || this.snapshot.state === 'approval') return;
+    this.newTask();
+    this.activity('system', 'Clean Codex context', 'The restored version will continue in a new task; previous tasks stay in history.');
+  };
 
   private async handleServerRequest(message: Required<Pick<RpcMessage, 'id' | 'method'>> & RpcMessage): Promise<void> {
     const params = recordOf(message.params);
