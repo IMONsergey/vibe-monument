@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApprovalCard, type UserAnswers } from './components/ApprovalCard';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
+import { EvidencePanel } from './components/EvidencePanel';
 import { FileTree } from './components/FileTree';
 import { CodexRuntime } from './codex/runtime';
 import { compileTurnText } from './context/turn';
@@ -34,9 +35,15 @@ import type {
   SimpleApprovalDecision,
   WorkspaceState,
 } from './types';
+import {
+  restoreVerification,
+  runVerification,
+  subscribeVerification,
+  type VerificationProgress,
+} from './verification/controller';
 
 type Viewport = 'desktop' | 'mobile';
-type DeveloperTab = 'activity' | 'files' | 'runtime' | 'diagnostics';
+type DeveloperTab = 'activity' | 'files' | 'runtime' | 'evidence' | 'diagnostics';
 
 const INITIAL_WORKSPACE: WorkspaceState = {
   project: null,
@@ -44,6 +51,7 @@ const INITIAL_WORKSPACE: WorkspaceState = {
   threads: [],
   codexState: 'idle',
   codexMessage: '',
+  completionSerial: 0,
   account: null,
   approval: null,
   activity: [],
@@ -74,6 +82,17 @@ function statusText(state: WorkspaceState['codexState']): string {
   }
 }
 
+function verificationLabel(progress: VerificationProgress | null): string | null {
+  if (!progress) return null;
+  switch (progress.evidence.status) {
+    case 'running': return progress.currentScript ? `Checking ${progress.currentScript}` : 'Verifying';
+    case 'passed': return 'Checks passed';
+    case 'failed': return 'Checks failed';
+    case 'no-checks': return 'No checks detected';
+    case 'error': return 'Verification error';
+  }
+}
+
 export function App() {
   const native = isNativeHost();
   const codex = useMemo(() => new CodexRuntime(), []);
@@ -97,13 +116,24 @@ export function App() {
   const [codexRuntimeInfo, setCodexRuntimeInfo] = useState<CodexRuntimeInfo | null>(null);
   const [protocolProbe, setProtocolProbe] = useState<CodexProtocolProbe | null>(null);
   const [authStarting, setAuthStarting] = useState(false);
+  const [verificationProgress, setVerificationProgress] = useState<VerificationProgress | null>(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const handledCompletionSerial = useRef(0);
+  const verificationProjectId = useRef<string | null>(null);
 
   const project = workspace.project;
   const selectedScript = projectScript(project);
 
   useEffect(() => subscribePreviewSelection(setSelection), []);
+  useEffect(() => subscribeVerification(setVerificationProgress), []);
 
   const clearSelection = useCallback(() => setPreviewSelection(null), []);
+
+  const refreshProjectSnapshot = useCallback(async (rootPath: string, projectId: string) => {
+    const refreshed = await inspectProject(rootPath).catch(() => null);
+    if (!refreshed) return;
+    setWorkspace((current) => current.project?.id === projectId ? { ...current, project: refreshed } : current);
+  }, []);
 
   const applyProject = useCallback(async (next: ProjectInspection) => {
     clearSelection();
@@ -122,6 +152,7 @@ export function App() {
       threads: snapshot.threads,
       codexState: snapshot.state,
       codexMessage: snapshot.message,
+      completionSerial: snapshot.completionSerial,
       account: snapshot.account,
       approval: snapshot.approval,
       activity: snapshot.activity,
@@ -136,6 +167,38 @@ export function App() {
   useEffect(() => {
     if (workspace.account?.readyForTurns) setAuthStarting(false);
   }, [workspace.account?.readyForTurns]);
+
+  useEffect(() => {
+    if (!project) {
+      verificationProjectId.current = null;
+      setVerificationProgress(null);
+      return;
+    }
+    verificationProjectId.current = project.id;
+    handledCompletionSerial.current = workspace.completionSerial;
+    void restoreVerification(project.id);
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (!project || verificationProjectId.current !== project.id || verificationBusy) return;
+    if (workspace.completionSerial <= handledCompletionSerial.current) return;
+    const targetSerial = workspace.completionSerial;
+    const projectId = project.id;
+    const projectRoot = project.rootPath;
+    const timer = window.setTimeout(() => {
+      setVerificationBusy(true);
+      void (async () => {
+        try {
+          await runVerification({ projectId, projectRoot, trigger: 'codex-turn' });
+          await refreshProjectSnapshot(projectRoot, projectId);
+        } finally {
+          handledCompletionSerial.current = Math.max(handledCompletionSerial.current, targetSerial);
+          setVerificationBusy(false);
+        }
+      })();
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [project?.id, project?.rootPath, refreshProjectSnapshot, verificationBusy, workspace.completionSerial]);
 
   useEffect(() => {
     if (!native) return;
@@ -289,6 +352,19 @@ export function App() {
     }
   }, [codex, diagnosticsRunning, native]);
 
+  const runAllChecks = useCallback(async () => {
+    if (!project || verificationBusy) return;
+    setVerificationBusy(true);
+    setDeveloperOpen(true);
+    setDeveloperTab('evidence');
+    try {
+      await runVerification({ projectId: project.id, projectRoot: project.rootPath, trigger: 'manual', includeManual: true });
+      await refreshProjectSnapshot(project.rootPath, project.id);
+    } finally {
+      setVerificationBusy(false);
+    }
+  }, [project, refreshProjectSnapshot, verificationBusy]);
+
   const startSignIn = useCallback(async () => {
     if (authStarting) return;
     setAuthStarting(true);
@@ -305,6 +381,8 @@ export function App() {
     }
   }, [authStarting, codex]);
 
+  const verificationStatus = verificationLabel(verificationProgress);
+
   return (
     <div className="monument-app">
       <header className="topbar" data-tauri-drag-region>
@@ -315,10 +393,11 @@ export function App() {
         </button>
         {project?.git.branch ? <span className="branch-label">{project.git.branch}</span> : null}
         <div className="topbar-spacer" />
+        {verificationStatus ? <button className={`verification-chip ${verificationProgress?.evidence.status ?? ''}`} type="button" onClick={() => { setDeveloperOpen(true); setDeveloperTab('evidence'); }}>{verificationStatus}</button> : null}
         <div className={`codex-status ${workspace.codexState}`}><span />{statusText(workspace.codexState)}</div>
         {workspace.codexState === 'auth-required' ? <button className="auth-button" type="button" disabled={authStarting} onClick={() => void startSignIn()}>{authStarting ? 'Opening…' : 'Sign in'}</button> : null}
         <button className="quiet-button" type="button" onClick={() => setDeveloperOpen((value) => !value)}>Under the hood</button>
-        <button className="ship-button" type="button" disabled title="Ship gates come after deterministic verification">Ship</button>
+        <button className="ship-button" type="button" disabled title="Ship gates require broader evidence than deterministic project checks">Ship</button>
       </header>
 
       <div className="product-layout">
@@ -403,6 +482,7 @@ export function App() {
                   {project ? <span className="context-chip">◎ {project.name}</span> : null}
                   {runtimeUrl ? <span className="context-chip">● Live preview</span> : null}
                   {selection ? <span className="context-chip selected-context" title={selection.selector}>⌖ {selectionLabel(selection)} <button type="button" onClick={clearSelection}>×</button></span> : null}
+                  {verificationStatus ? <span className={`context-chip verification-context ${verificationProgress?.evidence.status ?? ''}`}>{verificationStatus}</span> : null}
                   {workspace.account?.planType ? <span className="context-chip">Codex · {workspace.account.planType}</span> : null}
                 </div>
                 {workspace.codexState === 'busy' ? <button type="button" className="send-button stop-button" onClick={() => void codex.interrupt()} title="Stop Codex">■</button> : <button type="button" className="send-button" onClick={sendPrompt} disabled={!project || !prompt.trim() || sending || workspace.codexState !== 'ready'}>{sending ? '…' : '↑'}</button>}
@@ -414,13 +494,14 @@ export function App() {
         {developerOpen ? (
           <aside className="developer-panel">
             <div className="developer-tabs">
-              {(['activity', 'files', 'runtime', 'diagnostics'] as DeveloperTab[]).map((tab) => <button type="button" key={tab} className={developerTab === tab ? 'active' : ''} onClick={() => setDeveloperTab(tab)}>{tab}</button>)}
+              {(['activity', 'files', 'runtime', 'evidence', 'diagnostics'] as DeveloperTab[]).map((tab) => <button type="button" key={tab} className={developerTab === tab ? 'active' : ''} onClick={() => setDeveloperTab(tab)}>{tab}</button>)}
               <button type="button" className="close-dev" onClick={() => setDeveloperOpen(false)}>×</button>
             </div>
             <div className="developer-body">
               {developerTab === 'activity' ? (workspace.activity.length ? workspace.activity.slice().reverse().map((item) => <div className={`activity-item ${item.kind}`} key={item.id}><strong>{item.title}</strong>{item.detail ? <span>{item.detail}</span> : null}</div>) : <div className="panel-empty">Real Codex activity will appear here.</div>) : null}
               {developerTab === 'files' ? (project ? <FileTree nodes={project.files} /> : <div className="panel-empty">Open a project to inspect real files.</div>) : null}
               {developerTab === 'runtime' ? (runtimeLines.length ? runtimeLines.map((line, index) => <div className={`runtime-line ${line.stream}`} key={`${index}-${line.line}`}><span>{line.stream === 'stderr' ? '!' : '›'}</span>{line.line}</div>) : <div className="panel-empty">Runtime output will appear after the local preview starts.</div>) : null}
+              {developerTab === 'evidence' ? <EvidencePanel progress={verificationProgress} manualRunning={verificationBusy} onRunAll={() => void runAllChecks()} /> : null}
               {developerTab === 'diagnostics' ? <DiagnosticsPanel running={diagnosticsRunning} runtimeInfo={codexRuntimeInfo} protocol={protocolProbe} account={workspace.account} onRun={() => void runDiagnostics()} /> : null}
             </div>
           </aside>
