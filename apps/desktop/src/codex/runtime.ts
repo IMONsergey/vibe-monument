@@ -16,6 +16,7 @@ export type RuntimeSnapshot = {
   threads: CodexThreadSummary[];
   activeThreadId: string | null;
   activeTurnId: string | null;
+  turnSerial: number;
   completionSerial: number;
   message: string;
   account: CodexAccountSnapshot | null;
@@ -140,6 +141,7 @@ export class CodexRuntime {
     threads: [],
     activeThreadId: null,
     activeTurnId: null,
+    turnSerial: 0,
     completionSerial: 0,
     message: '',
     account: null,
@@ -372,7 +374,12 @@ export class CodexRuntime {
         break;
       }
       case 'turn/started':
-        this.patch({ state: 'busy', message: '', activeTurnId: objectId(params.turn) ?? this.snapshot.activeTurnId });
+        this.patch({
+          state: 'busy',
+          message: '',
+          activeTurnId: objectId(params.turn) ?? this.snapshot.activeTurnId,
+          turnSerial: this.snapshot.turnSerial + 1,
+        });
         break;
       case 'item/started': {
         const item = recordOf(params.item);
