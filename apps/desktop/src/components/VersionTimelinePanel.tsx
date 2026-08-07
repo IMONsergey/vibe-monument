@@ -1,3 +1,11 @@
+import { useEffect, useState } from 'react';
+import {
+  subscribeTimelineQuality,
+  timelineQualityForTurn,
+  type TimelineBrowserStatus,
+  type TimelineDeterministicStatus,
+  type TimelineQualityMap,
+} from '../timeline/quality';
 import type { TimelineCheckpoint, TimelineDiff, TimelineState } from '../timeline/types';
 
 function timeLabel(timestamp: number): string {
@@ -25,6 +33,25 @@ function checkpointKindLabel(checkpoint: TimelineCheckpoint): string | null {
   }
 }
 
+function deterministicBadge(status: TimelineDeterministicStatus): { label: string; tone: string } | null {
+  switch (status) {
+    case 'passed': return { label: 'Checks ✓', tone: 'good' };
+    case 'failed': return { label: 'Checks failed', tone: 'bad' };
+    case 'error': return { label: 'Check error', tone: 'bad' };
+    case 'permission-required': return { label: 'Checks off', tone: 'muted' };
+    case 'no-checks': return { label: 'No checks', tone: 'muted' };
+    default: return null;
+  }
+}
+
+function browserBadge(status: TimelineBrowserStatus): { label: string; tone: string } | null {
+  switch (status) {
+    case 'clean': return { label: 'Browser ✓', tone: 'good' };
+    case 'issues': return { label: 'Browser issues', tone: 'bad' };
+    default: return null;
+  }
+}
+
 export function VersionTimelinePanel({
   state,
   busy,
@@ -47,6 +74,15 @@ export function VersionTimelinePanel({
   onCompare: (checkpointId: string) => void;
 }) {
   const checkpoints = state?.checkpoints ?? [];
+  const projectId = checkpoints[0]?.projectId ?? null;
+  const [quality, setQuality] = useState<TimelineQualityMap>({});
+
+  useEffect(() => {
+    setQuality({});
+    if (!projectId) return;
+    return subscribeTimelineQuality(projectId, setQuality);
+  }, [projectId]);
+
   const byId = new Map(checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]));
   const childCounts = new Map<string, number>();
   const visibleNumberById = new Map<string, number>();
@@ -94,6 +130,10 @@ export function VersionTimelinePanel({
           const isCurrent = checkpoint.id === state?.currentCheckpointId;
           const alternative = !currentLineage.has(checkpoint.id) && checkpoint.pathId !== state?.activePathId;
           const forked = (childCounts.get(checkpoint.id) ?? 0) > 1;
+          const checkpointQuality = timelineQualityForTurn(quality, checkpoint.turnSerial);
+          const deterministic = checkpointQuality ? deterministicBadge(checkpointQuality.deterministic) : null;
+          const browser = checkpointQuality ? browserBadge(checkpointQuality.browser) : null;
+          const unverified = checkpoint.kind === 'prompt' && checkpoint.turnSerial != null && !checkpointQuality;
           return (
             <article className={`timeline-card ${isCurrent ? 'current' : ''} ${alternative ? 'alternative' : ''}`} key={checkpoint.id}>
               <div className="timeline-card-top">
@@ -108,6 +148,13 @@ export function VersionTimelinePanel({
                 <p>{checkpoint.promptExcerpt}</p>
               ) : null}
               {checkpointKindLabel(checkpoint) ? <small>{checkpointKindLabel(checkpoint)}</small> : null}
+              {(deterministic || browser || unverified) ? (
+                <div className="timeline-quality-row">
+                  {deterministic ? <span className={`timeline-quality ${deterministic.tone}`}>{deterministic.label}</span> : null}
+                  {browser ? <span className={`timeline-quality ${browser.tone}`}>{browser.label}</span> : null}
+                  {unverified ? <span className="timeline-quality muted">Not checked</span> : null}
+                </div>
+              ) : null}
               <div className="timeline-card-actions">
                 {!isCurrent ? <button type="button" disabled={busy} onClick={() => onRestore(checkpoint.id)}>Restore</button> : null}
                 {current && current.id !== checkpoint.id ? (
