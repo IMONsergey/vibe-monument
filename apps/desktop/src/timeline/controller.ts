@@ -17,12 +17,24 @@ import type {
   TimelineStatus,
 } from './types';
 
+export const TIMELINE_RESTORED_EVENT = 'monument:timeline-restored';
+
 const pendingPrompts = new Map<string, string>();
 let activeTimelineProject: ProjectInspection | null = null;
 
 function compactPrompt(value: string, limit = 120): string {
   const compact = value.replace(/\s+/g, ' ').trim();
   return compact.length <= limit ? compact : `${compact.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function notifyTimelineRestored(result: TimelineRestoreResult): TimelineRestoreResult {
+  window.dispatchEvent(new CustomEvent(TIMELINE_RESTORED_EVENT, {
+    detail: {
+      checkpointId: result.target.id,
+      pathId: result.target.pathId,
+    },
+  }));
+  return result;
 }
 
 export function timelineProjectId(project: Pick<ProjectInspection, 'rootPath'>): string {
@@ -121,7 +133,7 @@ export async function restoreTimelineVersion(
   checkpointId: string,
 ): Promise<TimelineRestoreResult> {
   activeTimelineProject = project;
-  return timelineRestore(project.rootPath, timelineProjectId(project), checkpointId);
+  return notifyTimelineRestored(await timelineRestore(project.rootPath, timelineProjectId(project), checkpointId));
 }
 
 export async function backTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
@@ -141,12 +153,12 @@ export async function backTimeline(project: ProjectInspection): Promise<Timeline
       forwardCheckpointId: next?.id ?? null,
     };
   }
-  return result;
+  return notifyTimelineRestored(result);
 }
 
 export async function forwardTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
   activeTimelineProject = project;
-  return timelineForward(project.rootPath, timelineProjectId(project));
+  return notifyTimelineRestored(await timelineForward(project.rootPath, timelineProjectId(project)));
 }
 
 export async function compareTimelineVersions(
