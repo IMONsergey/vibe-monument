@@ -60,13 +60,12 @@ export async function checkpointCompletedTurn({
 
 export async function saveTimelineVersion(
   project: ProjectInspection,
-  turnSerial: number,
   title = 'Saved version',
 ): Promise<TimelineCheckpoint> {
   return timelineSnapshot(project.rootPath, project.id, {
     kind: 'manual',
     title: compactPrompt(title, 76) || 'Saved version',
-    turnSerial,
+    turnSerial: null,
   });
 }
 
