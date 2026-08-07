@@ -176,6 +176,7 @@ export function App() {
   const handledTurnSerial = useRef(0);
   const verificationProjectId = useRef<string | null>(null);
   const timelineProjectId = useRef<string | null>(null);
+  const activeProjectIdRef = useRef<string | null>(null);
 
   const project = workspace.project;
   const selectedScript = projectScript(project);
@@ -183,6 +184,10 @@ export function App() {
   useEffect(() => subscribePreviewSelection(setSelection), []);
   useEffect(() => subscribeVerification(setVerificationProgress), []);
   useEffect(() => subscribeBrowserEvidence(setBrowserEvidence), []);
+
+  useEffect(() => {
+    activeProjectIdRef.current = project?.id ?? null;
+  }, [project?.id]);
 
   useEffect(() => {
     if (!project) {
@@ -368,7 +373,7 @@ export function App() {
   }, [codex, native]);
 
   const chooseProject = useCallback(async () => {
-    if (!native || opening) return;
+    if (!native || opening || sending || queueDispatching || verificationBusy || timelineBusy || workspace.codexState === 'busy' || workspace.codexState === 'approval') return;
     setOpening(true);
     setNotice(null);
     try {
@@ -384,7 +389,7 @@ export function App() {
     } finally {
       setOpening(false);
     }
-  }, [applyProject, native, opening, runtimeRunning]);
+  }, [applyProject, native, opening, queueDispatching, runtimeRunning, sending, timelineBusy, verificationBusy, workspace.codexState]);
 
   const launchPreview = useCallback(async () => {
     if (!project || !selectedScript || runtimeStarting) return;
@@ -709,7 +714,7 @@ export function App() {
     || workspace.codexState === 'approval'
   ));
   const verificationStatus = deterministicEvidenceStale && verificationProgress ? 'Checks stale' : verificationLabel(verificationProgress);
-  const timelineInteractionBusy = timelineBusy || verificationBusy || sending || workspace.codexState === 'busy' || workspace.codexState === 'approval';
+  const timelineInteractionBusy = timelineBusy || verificationBusy || sending || queueDispatching || workspace.codexState === 'busy' || workspace.codexState === 'approval';
   const currentVersionLabel = currentTimelineCheckpoint
     ? (currentTimelineCheckpoint.kind === 'baseline' ? 'Original' : `V${currentTimelineCheckpoint.sequence}`)
     : null;
@@ -734,25 +739,28 @@ export function App() {
   useEffect(() => {
     if (!project || !promptQueueState?.items.length || promptQueueState.paused || queueDispatching) return;
     if (queueBlockedByEvidence || !canExecutePromptNow || postTurnPending) return;
-    let disposed = false;
+    const projectId = project.id;
     setQueueDispatching(true);
     void (async () => {
       let item: QueuedPrompt | null = null;
       try {
-        const taken = await takeNextPrompt(project.id);
+        const taken = await takeNextPrompt(projectId);
         item = taken.item;
-        if (!item || disposed) return;
+        if (!item) return;
+        if (activeProjectIdRef.current !== projectId) {
+          await restoreQueuedPromptToFront(projectId, item);
+          return;
+        }
         if (item.threadId) codex.selectThread(item.threadId);
         const success = await executePrompt(item.text, item.selection, false);
-        if (!success && !disposed) await restoreQueuedPromptToFront(project.id, item);
+        if (!success) await restoreQueuedPromptToFront(projectId, item);
       } catch (error) {
-        if (item && !disposed) await restoreQueuedPromptToFront(project.id, item).catch(() => undefined);
-        if (!disposed) setNotice(error instanceof Error ? error.message : String(error));
+        if (item) await restoreQueuedPromptToFront(projectId, item).catch(() => undefined);
+        setNotice(error instanceof Error ? error.message : String(error));
       } finally {
-        if (!disposed) setQueueDispatching(false);
+        setQueueDispatching(false);
       }
     })();
-    return () => { disposed = true; };
   }, [canExecutePromptNow, codex, executePrompt, postTurnPending, project, promptQueueState?.items.length, promptQueueState?.paused, queueBlockedByEvidence, queueDispatching]);
 
   const toggleQueuePause = useCallback(() => {
@@ -781,7 +789,7 @@ export function App() {
       <header className="topbar" data-tauri-drag-region>
         <div className="window-space" data-tauri-drag-region />
         <button className="brand-button" type="button" onClick={() => { setDeveloperOpen(false); setTimelineOpen(false); }}>Monument</button>
-        <button className="project-switcher" type="button" onClick={chooseProject} disabled={!native || opening}>
+        <button className="project-switcher" type="button" onClick={chooseProject} disabled={!native || opening || sending || queueDispatching || timelineBusy || verificationBusy || workspace.codexState === 'busy' || workspace.codexState === 'approval'}>
           <span className="project-indicator" /><span>{project?.name ?? 'Open project'}</span><span className="chevron">⌄</span>
         </button>
         {project?.git.branch ? <span className="branch-label">{project.git.branch}</span> : null}
