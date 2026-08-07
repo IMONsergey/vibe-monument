@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { isAutoRepairEnabled, setAutoRepairEnabled } from '../repair/controller';
 import {
   isAutoVerificationEnabled,
   runVerification,
@@ -52,16 +53,24 @@ export function EvidencePanel({
   const automaticPlan = useMemo(() => plan.filter((item) => item.automatic), [plan]);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
+  const [repairEnabled, setRepairEnabled] = useState(false);
+  const [repairBusy, setRepairBusy] = useState(false);
 
   useEffect(() => {
     let disposed = false;
     const projectId = evidence?.projectId;
     if (!projectId) {
       setAutoEnabled(false);
+      setRepairEnabled(false);
       return () => { disposed = true; };
     }
-    void isAutoVerificationEnabled(projectId).then((enabled) => {
-      if (!disposed) setAutoEnabled(enabled);
+    void Promise.all([
+      isAutoVerificationEnabled(projectId),
+      isAutoRepairEnabled(projectId),
+    ]).then(([checks, repair]) => {
+      if (disposed) return;
+      setAutoEnabled(checks);
+      setRepairEnabled(repair);
     });
     return () => { disposed = true; };
   }, [evidence?.projectId, evidence?.id]);
@@ -90,9 +99,33 @@ export function EvidencePanel({
     setAutoBusy(true);
     try {
       await setAutoVerificationEnabled(evidence.projectId, false);
+      await setAutoRepairEnabled(evidence.projectId, false).catch(() => undefined);
       setAutoEnabled(false);
+      setRepairEnabled(false);
     } finally {
       setAutoBusy(false);
+    }
+  };
+
+  const enableRepair = async () => {
+    if (!evidence || repairBusy || !autoEnabled) return;
+    setRepairBusy(true);
+    try {
+      await setAutoRepairEnabled(evidence.projectId, true);
+      setRepairEnabled(true);
+    } finally {
+      setRepairBusy(false);
+    }
+  };
+
+  const disableRepair = async () => {
+    if (!evidence || repairBusy) return;
+    setRepairBusy(true);
+    try {
+      await setAutoRepairEnabled(evidence.projectId, false);
+      setRepairEnabled(false);
+    } finally {
+      setRepairBusy(false);
     }
   };
 
@@ -130,6 +163,28 @@ export function EvidencePanel({
             onClick={() => void (autoEnabled ? disableAuto() : enableAuto())}
           >
             {autoBusy ? 'Saving…' : autoEnabled ? 'Disable' : 'Enable for this project'}
+          </button>
+        </div>
+      ) : null}
+
+      {automaticPlan.length ? (
+        <div className={`auto-repair-row ${repairEnabled ? 'enabled' : ''}`}>
+          <div>
+            <strong>Auto repair · {repairEnabled ? 'On' : 'Off'}</strong>
+            <span>
+              {repairEnabled
+                ? 'If permitted automatic checks fail, Codex may make up to 2 bounded repair attempts. Permissions are never auto-approved.'
+                : autoEnabled
+                  ? 'Optional: let Monument attempt up to 2 bounded fixes after automatic checks fail.'
+                  : 'Enable Auto checks first. Auto repair never grants permission to run project scripts by itself.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={repairBusy || autoBusy || !autoEnabled || evidence?.status === 'running'}
+            onClick={() => void (repairEnabled ? disableRepair() : enableRepair())}
+          >
+            {repairBusy ? 'Saving…' : repairEnabled ? 'Disable' : autoEnabled ? 'Enable auto repair' : 'Enable checks first'}
           </button>
         </div>
       ) : null}
