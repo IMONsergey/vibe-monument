@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CodexRuntime } from './codex/runtime';
 import {
   inspectProject,
@@ -83,7 +83,6 @@ export function App() {
   const [developerOpen, setDeveloperOpen] = useState(false);
   const [developerTab, setDeveloperTab] = useState<DeveloperTab>('activity');
   const [notice, setNotice] = useState<string | null>(null);
-  const connectedRef = useRef(false);
 
   const project = workspace.project;
   const selectedScript = projectScript(project);
@@ -129,23 +128,23 @@ export function App() {
       const status = await runtimeStatus().catch(() => null);
       if (!disposed && status?.running) setRuntimeRunning(true);
 
+      let restoredProject: ProjectInspection | null = null;
       const lastProjectPath = await stateGet<string>('lastProjectPath').catch(() => null);
       if (!disposed && lastProjectPath) {
-        const restored = await inspectProject(lastProjectPath).catch(() => null);
-        if (restored && !disposed) await applyProject(restored);
+        restoredProject = await inspectProject(lastProjectPath).catch(() => null);
+        if (restoredProject && !disposed) {
+          setWorkspace((current) => ({ ...current, project: restoredProject }));
+        }
       }
 
-      if (!connectedRef.current) {
-        connectedRef.current = true;
-        await codex.connect().catch(() => undefined);
-      }
+      await codex.connect(restoredProject?.rootPath).catch(() => undefined);
     })();
 
     return () => {
       disposed = true;
       for (const dispose of disposers) dispose();
     };
-  }, [applyProject, codex, native]);
+  }, [codex, native]);
 
   const chooseProject = useCallback(async () => {
     if (!native || opening) return;
@@ -189,7 +188,7 @@ export function App() {
 
   const sendPrompt = useCallback(async () => {
     const text = prompt.trim();
-    if (!text || !project || sending) return;
+    if (!text || !project || sending || workspace.codexState === 'busy') return;
     setSending(true);
     setNotice(null);
     try {
@@ -200,7 +199,12 @@ export function App() {
     } finally {
       setSending(false);
     }
-  }, [codex, project, prompt, sending]);
+  }, [codex, project, prompt, sending, workspace.codexState]);
+
+  const startNewTask = useCallback(() => {
+    codex.newTask();
+    setPrompt('');
+  }, [codex]);
 
   return (
     <div className="monument-app">
@@ -223,13 +227,13 @@ export function App() {
         <aside className="task-rail">
           <div className="rail-heading">
             <span>Tasks</span>
-            <button type="button" className="mini-button" onClick={() => codex.selectThread('')}>＋</button>
+            <button type="button" className="mini-button" onClick={startNewTask}>＋</button>
           </div>
           <div className="task-list">
             <button
               type="button"
               className={`task-item ${workspace.activeThreadId === null ? 'active' : ''}`}
-              onClick={() => setWorkspace((current) => ({ ...current, activeThreadId: null }))}
+              onClick={startNewTask}
             >
               <span className="task-dot new" />
               <span><strong>New task</strong><small>Describe what should change</small></span>
@@ -315,7 +319,7 @@ export function App() {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
+                  if (event.key === 'Enter' && !event.shiftKey && workspace.codexState !== 'busy') {
                     event.preventDefault();
                     void sendPrompt();
                   }
@@ -328,7 +332,11 @@ export function App() {
                   {project ? <span className="context-chip">◎ {project.name}</span> : null}
                   {runtimeUrl ? <span className="context-chip">● Live preview</span> : null}
                 </div>
-                <button type="button" className="send-button" onClick={sendPrompt} disabled={!project || !prompt.trim() || sending || workspace.codexState === 'error'}>{sending ? '…' : '↑'}</button>
+                {workspace.codexState === 'busy' ? (
+                  <button type="button" className="send-button stop-button" onClick={() => void codex.interrupt()} title="Stop Codex">■</button>
+                ) : (
+                  <button type="button" className="send-button" onClick={sendPrompt} disabled={!project || !prompt.trim() || sending || workspace.codexState === 'error' || workspace.codexState === 'starting'}>{sending ? '…' : '↑'}</button>
+                )}
               </div>
             </div>
           </div>
