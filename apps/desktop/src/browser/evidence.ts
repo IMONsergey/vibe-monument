@@ -44,7 +44,7 @@ export interface BrowserEvidenceRecord {
   projectId: string;
   snapshot: BrowserEvidenceSnapshot;
   stale: boolean;
-  capturedForCompletionSerial: number;
+  capturedForTurnSerial: number;
 }
 
 type Listener = (record: BrowserEvidenceRecord | null) => void;
@@ -89,7 +89,7 @@ export async function clearBrowserEvidenceBuffer(): Promise<void> {
   await invokeNative<void>('preview_clear_browser_evidence');
 }
 
-export async function captureBrowserEvidence(projectId: string, completionSerial: number): Promise<BrowserEvidenceRecord> {
+export async function captureBrowserEvidence(projectId: string, turnSerial: number): Promise<BrowserEvidenceRecord> {
   let unlisten: (() => void) | null = null;
   let timeout: number | null = null;
   const snapshot = await new Promise<BrowserEvidenceSnapshot>(async (resolve, reject) => {
@@ -122,7 +122,7 @@ export async function captureBrowserEvidence(projectId: string, completionSerial
     projectId,
     snapshot,
     stale: false,
-    capturedForCompletionSerial: completionSerial,
+    capturedForTurnSerial: turnSerial,
   };
   emit(record);
   await stateSet(evidenceKey(projectId), record).catch(() => undefined);
