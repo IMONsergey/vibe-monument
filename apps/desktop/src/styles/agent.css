@@ -36,3 +36,8 @@
 
 .toast { position:fixed; left:50%; bottom:18px; transform:translate(-50%, 20px); opacity:0; pointer-events:none; background:#22221f; color:#fff; border-radius:9px; padding:8px 11px; font-size:10.5px; box-shadow:0 12px 35px rgba(0,0,0,.18); transition:.2s ease; z-index:20; }
 .toast.visible { opacity:1; transform:translate(-50%,0); }
+
+.live-codex { margin:14px 0 4px; padding:10px; border:1px solid var(--line); border-radius:9px; background:var(--surface-2); }
+.live-codex p { margin:5px 0 0; font-size:10.4px; line-height:1.45; color:var(--ink); }
+.status-pill.error .status-dot { background:#b35a4b; box-shadow:0 0 0 3px rgba(179,90,75,.1); }
+.native-shell .traffic { visibility:hidden; min-width:49px; }

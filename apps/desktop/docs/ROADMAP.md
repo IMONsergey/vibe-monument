@@ -50,3 +50,16 @@
 - plugin/skill management
 - accessibility/keyboard audit
 - performance budget
+
+## Current M1 implementation status
+
+Implemented in source:
+- Tauri 2 project/config/capability skeleton;
+- managed Codex stdio runtime commands (`start/send/status/stop`);
+- Rust → frontend JSON-RPC event bridge;
+- dependency-free Tauri global frontend adapter;
+- browser demo transport using the exact same `CodexAppServerClient` contract;
+- live connection/session state in the product shell;
+- 5 host/protocol tests plus UI smoke coverage.
+
+Still requires a macOS build machine with Rust/Tauri toolchain for the first native binary compilation, signing, and WKWebView verification. The current CI environment intentionally does not claim a Rust compile because `rustc`/`cargo` are absent.

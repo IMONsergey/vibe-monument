@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  web-contract:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -24,9 +24,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Syntax check
+      - name: Syntax and native source contract
         run: npm run check
-      - name: Protocol and unit tests
+      - name: Protocol and host tests
         run: npm test
       - name: Static build
         run: npm run build
+
+  native-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Check native Tauri host
+        run: cargo check --all-targets
