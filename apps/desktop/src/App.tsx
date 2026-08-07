@@ -4,6 +4,7 @@ import { BrowserEvidencePanel } from './components/BrowserEvidencePanel';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { FileTree } from './components/FileTree';
+import { VersionTimelinePanel } from './components/VersionTimelinePanel';
 import { CodexRuntime } from './codex/runtime';
 import { compileTurnText } from './context/turn';
 import {
@@ -37,6 +38,18 @@ import {
   subscribePreviewSelection,
   type PreviewSelection,
 } from './preview/selection';
+import {
+  backTimeline,
+  checkpointCompletedTurn,
+  compareTimelineVersions,
+  forgetTimelinePrompt,
+  forwardTimeline,
+  prepareTimeline,
+  rememberTimelinePrompt,
+  restoreTimelineVersion,
+  saveTimelineVersion,
+} from './timeline/controller';
+import type { TimelineDiff, TimelineRestoreResult, TimelineState } from './timeline/types';
 import type {
   CodexProtocolProbe,
   CodexRuntimeInfo,
@@ -103,6 +116,12 @@ function verificationLabel(progress: VerificationProgress | null): string | null
   }
 }
 
+function editableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(
+    target.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"]'),
+  );
+}
+
 export function App() {
   const native = isNativeHost();
   const codex = useMemo(() => new CodexRuntime(), []);
@@ -130,9 +149,14 @@ export function App() {
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [browserEvidence, setBrowserEvidence] = useState<BrowserEvidenceRecord | null>(null);
   const [browserEvidenceBusy, setBrowserEvidenceBusy] = useState(false);
+  const [timelineState, setTimelineState] = useState<TimelineState | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [timelineBusy, setTimelineBusy] = useState(false);
+  const [timelineDiff, setTimelineDiff] = useState<TimelineDiff | null>(null);
   const handledCompletionSerial = useRef(0);
   const handledTurnSerial = useRef(0);
   const verificationProjectId = useRef<string | null>(null);
+  const timelineProjectId = useRef<string | null>(null);
 
   const project = workspace.project;
   const selectedScript = projectScript(project);
@@ -149,15 +173,27 @@ export function App() {
     setWorkspace((current) => current.project?.id === projectId ? { ...current, project: refreshed } : current);
   }, []);
 
+  const refreshTimeline = useCallback(async (target: ProjectInspection) => {
+    const next = await prepareTimeline(target);
+    setTimelineState(next);
+    return next;
+  }, []);
+
   const applyProject = useCallback(async (next: ProjectInspection) => {
     clearSelection();
+    setTimelineOpen(false);
+    setTimelineDiff(null);
+    setTimelineState(null);
     setWorkspace((current) => ({ ...current, project: next }));
     setRuntimeUrl(null);
     setRuntimeLines([]);
     setRuntimeRunning(false);
     await stateSet('lastProjectPath', next.rootPath).catch(() => undefined);
     await codex.refreshThreads(next.rootPath).catch(() => undefined);
-  }, [clearSelection, codex]);
+    void refreshTimeline(next).catch((error) => {
+      setNotice(`Version history unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }, [clearSelection, codex, refreshTimeline]);
 
   useEffect(() => codex.subscribe((snapshot) => {
     setWorkspace((current) => ({
@@ -186,16 +222,23 @@ export function App() {
   useEffect(() => {
     if (!project) {
       verificationProjectId.current = null;
+      timelineProjectId.current = null;
       setVerificationProgress(null);
       setBrowserEvidence(null);
+      setTimelineState(null);
+      setTimelineDiff(null);
       return;
     }
     verificationProjectId.current = project.id;
+    timelineProjectId.current = project.id;
     handledCompletionSerial.current = workspace.completionSerial;
     handledTurnSerial.current = workspace.turnSerial;
     void restoreVerification(project.id);
     void restoreBrowserEvidence(project.id);
-  }, [project?.id]);
+    void refreshTimeline(project).catch((error) => {
+      setNotice(`Version history unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }, [project?.id, project?.rootPath, refreshTimeline]);
 
   useEffect(() => {
     if (!project || workspace.turnSerial <= handledTurnSerial.current) return;
@@ -205,16 +248,34 @@ export function App() {
   }, [project?.id, runtimeUrl, workspace.turnSerial]);
 
   useEffect(() => {
-    if (!project || verificationProjectId.current !== project.id || verificationBusy) return;
+    if (!project || verificationProjectId.current !== project.id || verificationBusy || timelineBusy) return;
     if (workspace.completionSerial <= handledCompletionSerial.current) return;
     const targetSerial = workspace.completionSerial;
     const projectId = project.id;
     const projectRoot = project.rootPath;
     const turnSerial = workspace.turnSerial;
+    const threadId = workspace.activeThreadId;
     const timer = window.setTimeout(() => {
       setVerificationBusy(true);
+      setTimelineBusy(true);
       void (async () => {
         try {
+          try {
+            await checkpointCompletedTurn({
+              project,
+              codexThreadId: threadId,
+              codexTurnId: null,
+              turnSerial,
+            });
+            if (timelineProjectId.current === projectId) {
+              await refreshTimeline(project);
+            }
+          } catch (error) {
+            setNotice(`Could not save this version: ${error instanceof Error ? error.message : String(error)}`);
+          } finally {
+            setTimelineBusy(false);
+          }
+
           await runVerification({ projectId, projectRoot, trigger: 'codex-turn', turnSerial });
           await refreshProjectSnapshot(projectRoot, projectId);
           if (runtimeUrl) {
@@ -231,11 +292,12 @@ export function App() {
         } finally {
           handledCompletionSerial.current = Math.max(handledCompletionSerial.current, targetSerial);
           setVerificationBusy(false);
+          setTimelineBusy(false);
         }
       })();
-    }, 250);
+    }, 220);
     return () => window.clearTimeout(timer);
-  }, [project?.id, project?.rootPath, refreshProjectSnapshot, runtimeUrl, verificationBusy, workspace.completionSerial, workspace.turnSerial]);
+  }, [project, refreshProjectSnapshot, refreshTimeline, runtimeUrl, timelineBusy, verificationBusy, workspace.activeThreadId, workspace.completionSerial, workspace.turnSerial]);
 
   useEffect(() => {
     if (!native) return;
@@ -334,14 +396,24 @@ export function App() {
     setSending(true);
     setNotice(null);
     try {
+      setTimelineBusy(true);
+      try {
+        const prepared = await prepareTimeline(project);
+        setTimelineState(prepared);
+        rememberTimelinePrompt(project.id, text);
+      } finally {
+        setTimelineBusy(false);
+      }
       const turnText = await compileTurnText(text, project.rootPath);
       await codex.send(turnText, project.rootPath);
       setPrompt('');
       clearSelection();
     } catch (error) {
+      forgetTimelinePrompt(project.id);
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setSending(false);
+      setTimelineBusy(false);
     }
   }, [clearSelection, codex, project, prompt, sending, workspace.codexState]);
 
@@ -393,6 +465,7 @@ export function App() {
     if (!project || verificationBusy) return;
     setVerificationBusy(true);
     setDeveloperOpen(true);
+    setTimelineOpen(false);
     setDeveloperTab('evidence');
     try {
       await runVerification({ projectId: project.id, projectRoot: project.rootPath, trigger: 'manual', includeManual: true, turnSerial: workspace.turnSerial });
@@ -406,6 +479,7 @@ export function App() {
     if (!project || !runtimeUrl || browserEvidenceBusy) return;
     setBrowserEvidenceBusy(true);
     setDeveloperOpen(true);
+    setTimelineOpen(false);
     setDeveloperTab('evidence');
     try {
       await captureBrowserEvidence(project.id, workspace.turnSerial);
@@ -432,33 +506,156 @@ export function App() {
     }
   }, [authStarting, codex]);
 
+  const applyTimelineRestore = useCallback(async (result: TimelineRestoreResult) => {
+    if (!project) return;
+    setTimelineState(result.state);
+    setTimelineDiff(null);
+    clearSelection();
+    await markBrowserEvidenceStale(project.id).catch(() => undefined);
+    if (runtimeUrl) await clearBrowserEvidenceBuffer().catch(() => undefined);
+    await refreshProjectSnapshot(project.rootPath, project.id);
+    if (runtimeUrl) await refreshPreview().catch(() => undefined);
+    setNotice(result.safetyCheckpoint
+      ? 'Current changes were saved as a safety version before restoring. You can always return to them.'
+      : `Restored ${result.target.title}. Later versions are still available.`);
+  }, [clearSelection, project, refreshPreview, refreshProjectSnapshot, runtimeUrl]);
+
+  const restoreVersion = useCallback(async (checkpointId: string) => {
+    if (!project || timelineBusy || verificationBusy || sending || workspace.codexState === 'busy' || workspace.codexState === 'approval') return;
+    setTimelineBusy(true);
+    setNotice(null);
+    try {
+      await applyTimelineRestore(await restoreTimelineVersion(project, checkpointId));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTimelineBusy(false);
+    }
+  }, [applyTimelineRestore, project, sending, timelineBusy, verificationBusy, workspace.codexState]);
+
+  const goTimelineBack = useCallback(async () => {
+    if (!project || !timelineState?.canBack || timelineBusy || verificationBusy || sending || workspace.codexState !== 'ready') return;
+    setTimelineBusy(true);
+    setNotice(null);
+    try {
+      await applyTimelineRestore(await backTimeline(project));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTimelineBusy(false);
+    }
+  }, [applyTimelineRestore, project, sending, timelineBusy, timelineState?.canBack, verificationBusy, workspace.codexState]);
+
+  const goTimelineForward = useCallback(async () => {
+    if (!project || !timelineState?.forwardCheckpointId || timelineBusy || verificationBusy || sending || workspace.codexState !== 'ready') return;
+    setTimelineBusy(true);
+    setNotice(null);
+    try {
+      await applyTimelineRestore(await forwardTimeline(project));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTimelineBusy(false);
+    }
+  }, [applyTimelineRestore, project, sending, timelineBusy, timelineState?.forwardCheckpointId, verificationBusy, workspace.codexState]);
+
+  const saveVersion = useCallback(async () => {
+    if (!project || timelineBusy || verificationBusy || sending || workspace.codexState !== 'ready') return;
+    setTimelineBusy(true);
+    setNotice(null);
+    try {
+      await saveTimelineVersion(project);
+      await refreshTimeline(project);
+      setNotice('Version saved.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTimelineBusy(false);
+    }
+  }, [project, refreshTimeline, sending, timelineBusy, verificationBusy, workspace.codexState]);
+
+  const compareVersion = useCallback(async (checkpointId: string) => {
+    if (!project || !timelineState || timelineBusy) return;
+    setTimelineBusy(true);
+    try {
+      setTimelineDiff(await compareTimelineVersions(project, checkpointId, timelineState.currentCheckpointId));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTimelineBusy(false);
+    }
+  }, [project, timelineBusy, timelineState]);
+
+  const openTimeline = useCallback(async () => {
+    if (!project) return;
+    setDeveloperOpen(false);
+    setTimelineOpen(true);
+    setTimelineDiff(null);
+    try {
+      await refreshTimeline(project);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, [project, refreshTimeline]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey || event.key.toLowerCase() !== 'z' || editableTarget(event.target)) return;
+      if (!project || sending || timelineBusy || verificationBusy || workspace.codexState !== 'ready') return;
+      event.preventDefault();
+      if (event.shiftKey) void goTimelineForward();
+      else void goTimelineBack();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [goTimelineBack, goTimelineForward, project, sending, timelineBusy, verificationBusy, workspace.codexState]);
+
+  const currentTimelineCheckpoint = timelineState?.checkpoints.find((checkpoint) => checkpoint.id === timelineState.currentCheckpointId) ?? null;
+  const currentCodeTurnSerial = timelineState
+    ? (timelineState.dirty ? null : currentTimelineCheckpoint?.turnSerial ?? null)
+    : workspace.turnSerial;
   const deterministicEvidenceStale = Boolean(verificationProgress && (
-    verificationProgress.evidence.turnSerial !== workspace.turnSerial
+    currentCodeTurnSerial == null
+    || verificationProgress.evidence.turnSerial !== currentCodeTurnSerial
+    || timelineBusy
     || workspace.codexState === 'busy'
     || workspace.codexState === 'approval'
   ));
   const browserEvidenceStale = Boolean(browserEvidence && (
     browserEvidence.stale
-    || browserEvidence.capturedForTurnSerial !== workspace.turnSerial
+    || currentCodeTurnSerial == null
+    || browserEvidence.capturedForTurnSerial !== currentCodeTurnSerial
+    || timelineBusy
     || workspace.codexState === 'busy'
     || workspace.codexState === 'approval'
   ));
   const verificationStatus = deterministicEvidenceStale && verificationProgress ? 'Checks stale' : verificationLabel(verificationProgress);
+  const timelineInteractionBusy = timelineBusy || verificationBusy || sending || workspace.codexState === 'busy' || workspace.codexState === 'approval';
+  const currentVersionLabel = currentTimelineCheckpoint
+    ? (currentTimelineCheckpoint.kind === 'baseline' ? 'Original' : `V${currentTimelineCheckpoint.sequence}`)
+    : null;
 
   return (
     <div className="monument-app">
       <header className="topbar" data-tauri-drag-region>
         <div className="window-space" data-tauri-drag-region />
-        <button className="brand-button" type="button" onClick={() => setDeveloperOpen(false)}>Monument</button>
+        <button className="brand-button" type="button" onClick={() => { setDeveloperOpen(false); setTimelineOpen(false); }}>Monument</button>
         <button className="project-switcher" type="button" onClick={chooseProject} disabled={!native || opening}>
           <span className="project-indicator" /><span>{project?.name ?? 'Open project'}</span><span className="chevron">⌄</span>
         </button>
         {project?.git.branch ? <span className="branch-label">{project.git.branch}</span> : null}
+        {project ? (
+          <div className="history-controls">
+            <button type="button" disabled={timelineInteractionBusy || !timelineState?.canBack} onClick={() => void goTimelineBack()} title="Previous version (⌘Z)">←</button>
+            <button type="button" disabled={timelineInteractionBusy || !timelineState?.forwardCheckpointId} onClick={() => void goTimelineForward()} title="Next version (⇧⌘Z)">→</button>
+            <button type="button" className={timelineOpen ? 'active' : ''} onClick={() => void openTimeline()}>{currentVersionLabel ? `Versions · ${currentVersionLabel}` : 'Versions'}</button>
+          </div>
+        ) : null}
         <div className="topbar-spacer" />
-        {verificationStatus ? <button className={`verification-chip ${deterministicEvidenceStale ? 'stale' : verificationProgress?.evidence.status ?? ''}`} type="button" onClick={() => { setDeveloperOpen(true); setDeveloperTab('evidence'); }}>{verificationStatus}</button> : null}
+        {verificationStatus ? <button className={`verification-chip ${deterministicEvidenceStale ? 'stale' : verificationProgress?.evidence.status ?? ''}`} type="button" onClick={() => { setTimelineOpen(false); setDeveloperOpen(true); setDeveloperTab('evidence'); }}>{verificationStatus}</button> : null}
         <div className={`codex-status ${workspace.codexState}`}><span />{statusText(workspace.codexState)}</div>
         {workspace.codexState === 'auth-required' ? <button className="auth-button" type="button" disabled={authStarting} onClick={() => void startSignIn()}>{authStarting ? 'Opening…' : 'Sign in'}</button> : null}
-        <button className="quiet-button" type="button" onClick={() => setDeveloperOpen((value) => !value)}>Under the hood</button>
+        <button className="quiet-button" type="button" onClick={() => { setTimelineOpen(false); setDeveloperOpen((value) => !value); }}>Under the hood</button>
         <button className="ship-button" type="button" disabled title="Ship gates require broader evidence than deterministic project checks">Ship</button>
       </header>
 
@@ -544,10 +741,11 @@ export function App() {
                   {project ? <span className="context-chip">◎ {project.name}</span> : null}
                   {runtimeUrl ? <span className="context-chip">● Live preview</span> : null}
                   {selection ? <span className="context-chip selected-context" title={selection.selector}>⌖ {selectionLabel(selection)} <button type="button" onClick={clearSelection}>×</button></span> : null}
+                  {currentVersionLabel ? <span className="context-chip">History · {currentVersionLabel}</span> : null}
                   {verificationStatus ? <span className={`context-chip verification-context ${deterministicEvidenceStale ? 'stale' : verificationProgress?.evidence.status ?? ''}`}>{verificationStatus}</span> : null}
                   {workspace.account?.planType ? <span className="context-chip">Codex · {workspace.account.planType}</span> : null}
                 </div>
-                {workspace.codexState === 'busy' ? <button type="button" className="send-button stop-button" onClick={() => void codex.interrupt()} title="Stop Codex">■</button> : <button type="button" className="send-button" onClick={sendPrompt} disabled={!project || !prompt.trim() || sending || workspace.codexState !== 'ready'}>{sending ? '…' : '↑'}</button>}
+                {workspace.codexState === 'busy' ? <button type="button" className="send-button stop-button" onClick={() => void codex.interrupt()} title="Stop Codex">■</button> : <button type="button" className="send-button" onClick={sendPrompt} disabled={!project || !prompt.trim() || sending || timelineBusy || workspace.codexState !== 'ready'}>{sending ? '…' : '↑'}</button>}
               </div>
             </div>
           </div>
@@ -570,6 +768,20 @@ export function App() {
               {developerTab === 'diagnostics' ? <DiagnosticsPanel running={diagnosticsRunning} runtimeInfo={codexRuntimeInfo} protocol={protocolProbe} account={workspace.account} onRun={() => void runDiagnostics()} /> : null}
             </div>
           </aside>
+        ) : null}
+
+        {timelineOpen && project ? (
+          <VersionTimelinePanel
+            state={timelineState}
+            busy={timelineInteractionBusy}
+            diff={timelineDiff}
+            onClose={() => setTimelineOpen(false)}
+            onBack={() => void goTimelineBack()}
+            onForward={() => void goTimelineForward()}
+            onSave={() => void saveVersion()}
+            onRestore={(checkpointId) => void restoreVersion(checkpointId)}
+            onCompare={(checkpointId) => void compareVersion(checkpointId)}
+          />
         ) : null}
       </div>
     </div>

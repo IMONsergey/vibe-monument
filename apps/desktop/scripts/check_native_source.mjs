@@ -14,12 +14,16 @@ const project = await readFile(join(root, 'src-tauri/src/project_runtime.rs'), '
 const processRuntime = await readFile(join(root, 'src-tauri/src/process_runtime.rs'), 'utf8');
 const previewRuntime = await readFile(join(root, 'src-tauri/src/preview_runtime.rs'), 'utf8');
 const sourceLocator = await readFile(join(root, 'src-tauri/src/source_locator.rs'), 'utf8');
+const timelineRuntime = await readFile(join(root, 'src-tauri/src/timeline_runtime.rs'), 'utf8');
+const timelineCursor = await readFile(join(root, 'src-tauri/src/timeline_cursor.rs'), 'utf8');
 const persistence = await readFile(join(root, 'src-tauri/src/persistence.rs'), 'utf8');
 const systemRuntime = await readFile(join(root, 'src-tauri/src/system_runtime.rs'), 'utf8');
 const app = await readFile(join(root, 'src/App.tsx'), 'utf8');
 const entry = await readFile(join(root, 'src/main.tsx'), 'utf8');
 const approval = await readFile(join(root, 'src/components/ApprovalCard.tsx'), 'utf8');
 const diagnostics = await readFile(join(root, 'src/components/DiagnosticsPanel.tsx'), 'utf8');
+const versionPanel = await readFile(join(root, 'src/components/VersionTimelinePanel.tsx'), 'utf8');
+const timelineController = await readFile(join(root, 'src/timeline/controller.ts'), 'utf8');
 const nativePreview = await readFile(join(root, 'src/preview/NativePreview.tsx'), 'utf8');
 const selection = await readFile(join(root, 'src/preview/selection.ts'), 'utf8');
 const turnContext = await readFile(join(root, 'src/context/turn.ts'), 'utf8');
@@ -64,7 +68,39 @@ for (const token of ['system_open_external', '/usr/bin/open', 'https://']) {
   if (!systemRuntime.includes(token)) throw new Error(`System runtime auth boundary missing ${token}`);
 }
 
-const productionSource = `${entry}\n${app}\n${approval}\n${diagnostics}\n${nativePreview}\n${selection}\n${turnContext}`;
+for (const token of [
+  'timeline_init',
+  'timeline_snapshot',
+  'timeline_restore',
+  'timeline_back',
+  'timeline_forward',
+  'timeline_diff',
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'refs/monument/checkpoints',
+  'restore-safety',
+  'Before restore',
+  '.require_git(false)',
+  '.env.example',
+  'Restore blocked because unmanaged',
+]) {
+  if (!timelineRuntime.includes(token)) throw new Error(`Version Timeline runtime missing ${token}`);
+}
+if (timelineRuntime.includes('reset --hard') || timelineRuntime.includes('git reset')) throw new Error('Version Timeline must never reset the user repository');
+if (!timelineCursor.includes('timeline_set_active_path')) throw new Error('Version Timeline fork navigation cursor is missing');
+for (const token of ['prepareTimeline', 'rememberTimelinePrompt', 'checkpointCompletedTurn', 'timelineSetActivePath']) {
+  if (!timelineController.includes(token)) throw new Error(`Version Timeline controller missing ${token}`);
+}
+for (const token of ['Versions', 'Save version', 'Restore', 'Compare', 'Going back never deletes later versions']) {
+  if (!versionPanel.includes(token)) throw new Error(`Version Timeline product UX missing ${token}`);
+}
+for (const token of ['history-controls', 'VersionTimelinePanel', 'checkpointCompletedTurn', 'rememberTimelinePrompt', 'event.metaKey', 'goTimelineBack', 'goTimelineForward']) {
+  if (!app.includes(token)) throw new Error(`Version Timeline App integration missing ${token}`);
+}
+if (!entry.includes("./styles/timeline.css")) throw new Error('Version Timeline styles are not loaded');
+
+const productionSource = `${entry}\n${app}\n${approval}\n${diagnostics}\n${nativePreview}\n${selection}\n${turnContext}\n${versionPanel}\n${timelineController}`;
 if (productionSource.includes('mock-data') || productionSource.includes('BrowserDemoCodexTransport')) throw new Error('Production Monument entrypoint must never depend on mock product data');
 if (!app.includes('Tell Monument what to build or change')) throw new Error('Product-first composer contract drifted');
 if (!app.includes('Under the hood')) throw new Error('Progressive disclosure developer surface is missing');
@@ -93,8 +129,8 @@ if (codexClient.includes('textElements')) throw new Error('Legacy textElements p
 for (const token of ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/permissions/requestApproval', 'item/tool/requestUserInput', 'serverRequest/resolved', 'account/login/completed', 'account/updated', 'resolveApproval', 'answerUserInput', 'startChatGptLogin']) {
   if (!codexProjection.includes(token)) throw new Error(`Codex runtime projection missing ${token}`);
 }
-for (const source of [codex, processRuntime, previewRuntime, sourceLocator, systemRuntime]) {
+for (const source of [codex, processRuntime, previewRuntime, sourceLocator, systemRuntime, timelineRuntime]) {
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/source-hints/release contract: PASS`);
+console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/timeline/release contract: PASS`);

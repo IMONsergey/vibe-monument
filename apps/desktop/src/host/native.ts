@@ -1,4 +1,12 @@
 import type { CodexProtocolProbe, CodexRuntimeInfo, ProjectInspection } from '../types';
+import type {
+  TimelineCheckpoint,
+  TimelineDiff,
+  TimelineRestoreResult,
+  TimelineSnapshotMetadata,
+  TimelineState,
+  TimelineStatus,
+} from '../timeline/types';
 
 type Unlisten = () => void;
 
@@ -75,6 +83,60 @@ export async function probeCodexProtocol(): Promise<CodexProtocolProbe> {
 
 export async function openExternalUrl(url: string): Promise<void> {
   await invokeNative<void>('system_open_external', { url });
+}
+
+export async function timelineInit(projectPath: string, projectId: string): Promise<TimelineState> {
+  return invokeNative<TimelineState>('timeline_init', { projectPath, projectId });
+}
+
+export async function timelineSnapshot(
+  projectPath: string,
+  projectId: string,
+  metadata: TimelineSnapshotMetadata,
+): Promise<TimelineCheckpoint> {
+  return invokeNative<TimelineCheckpoint>('timeline_snapshot', { projectPath, projectId, metadata });
+}
+
+export async function timelineList(projectId: string): Promise<TimelineCheckpoint[]> {
+  return invokeNative<TimelineCheckpoint[]>('timeline_list', { projectId });
+}
+
+export async function timelineStatus(projectPath: string, projectId: string): Promise<TimelineStatus> {
+  return invokeNative<TimelineStatus>('timeline_status', { projectPath, projectId });
+}
+
+export async function timelineRestore(
+  projectPath: string,
+  projectId: string,
+  checkpointId: string,
+): Promise<TimelineRestoreResult> {
+  return invokeNative<TimelineRestoreResult>('timeline_restore', { projectPath, projectId, checkpointId });
+}
+
+export async function timelineBack(projectPath: string, projectId: string): Promise<TimelineRestoreResult> {
+  return invokeNative<TimelineRestoreResult>('timeline_back', { projectPath, projectId });
+}
+
+export async function timelineForward(projectPath: string, projectId: string): Promise<TimelineRestoreResult> {
+  return invokeNative<TimelineRestoreResult>('timeline_forward', { projectPath, projectId });
+}
+
+export async function timelineSetActivePath(projectId: string, pathId: string): Promise<void> {
+  await invokeNative<void>('timeline_set_active_path', { projectId, pathId });
+}
+
+export async function timelineDiff(
+  projectPath: string,
+  projectId: string,
+  fromCheckpointId: string,
+  toCheckpointId: string,
+): Promise<TimelineDiff> {
+  return invokeNative<TimelineDiff>('timeline_diff', {
+    projectPath,
+    projectId,
+    fromCheckpointId,
+    toCheckpointId,
+  });
 }
 
 export async function stateGet<T>(key: string): Promise<T | null> {

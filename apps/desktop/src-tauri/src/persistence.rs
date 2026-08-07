@@ -4,13 +4,13 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     Ok(directory.join("monument.sqlite"))
 }
 
-fn connection(app: &AppHandle) -> Result<Connection, String> {
+pub(crate) fn connection(app: &AppHandle) -> Result<Connection, String> {
     let conn = Connection::open(database_path(app)?).map_err(|error| error.to_string())?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS app_state (
