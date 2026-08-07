@@ -201,3 +201,33 @@ pub fn project_open() -> Result<Option<ProjectInspection>, String> {
 pub fn project_inspect(path: String) -> Result<ProjectInspection, String> {
     inspect_path(PathBuf::from(path))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{should_hide, suggested_dev_command};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn prefers_dev_script_and_formats_npm_safely() {
+        let mut scripts = BTreeMap::new();
+        scripts.insert("dev".to_string(), "vite".to_string());
+        scripts.insert("start".to_string(), "node server.js".to_string());
+        assert_eq!(suggested_dev_command(Some("npm"), &scripts), Some("npm run dev".to_string()));
+    }
+
+    #[test]
+    fn formats_pnpm_without_shell_interpolation() {
+        let mut scripts = BTreeMap::new();
+        scripts.insert("dev".to_string(), "next dev".to_string());
+        assert_eq!(suggested_dev_command(Some("pnpm"), &scripts), Some("pnpm dev".to_string()));
+    }
+
+    #[test]
+    fn hides_secret_and_heavy_runtime_paths() {
+        for name in [".env", ".env.local", ".git", "node_modules", "target", ".next"] {
+            assert!(should_hide(name), "{name} must stay out of the product file tree");
+        }
+        assert!(!should_hide("src"));
+        assert!(!should_hide("package.json"));
+    }
+}
