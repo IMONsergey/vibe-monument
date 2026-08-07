@@ -8,6 +8,7 @@ import type {
   SimpleApprovalDecision,
   UserInputQuestion,
 } from '../types';
+import { checkpointActiveTimelineTurn } from '../timeline/controller';
 import { CodexClient } from './client';
 import { NativeCodexTransport, type RpcMessage } from './transport';
 
@@ -305,6 +306,29 @@ export class CodexRuntime {
     this.activity('system', 'Clean Codex context', 'The restored version will continue in a new task; previous tasks stay in history.');
   };
 
+  private async finalizeCompletedTurn({
+    codexThreadId,
+    codexTurnId,
+    turnSerial,
+  }: {
+    codexThreadId: string | null;
+    codexTurnId: string | null;
+    turnSerial: number;
+  }): Promise<void> {
+    try {
+      await checkpointActiveTimelineTurn({ codexThreadId, codexTurnId, turnSerial });
+    } catch (error) {
+      this.activity('error', 'Could not save version checkpoint', String(error instanceof Error ? error.message : error));
+    }
+    this.patch({
+      state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready',
+      approval: null,
+      activeTurnId: null,
+      completionSerial: this.snapshot.completionSerial + 1,
+    });
+    this.activity('review', 'Request completed', 'Version checkpoint finalized; verification starts separately.');
+  }
+
   private async handleServerRequest(message: Required<Pick<RpcMessage, 'id' | 'method'>> & RpcMessage): Promise<void> {
     const params = recordOf(message.params);
     const itemId = typeof params.itemId === 'string' ? params.itemId : undefined;
@@ -432,15 +456,14 @@ export class CodexRuntime {
           this.activity('error', 'ChatGPT sign-in failed', typeof params.error === 'string' ? params.error : undefined);
         }
         break;
-      case 'turn/completed':
-        this.patch({
-          state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready',
-          approval: null,
-          activeTurnId: null,
-          completionSerial: this.snapshot.completionSerial + 1,
-        });
-        this.activity('review', 'Request completed', 'Deterministic verification starts separately; completion alone is not proof.');
+      case 'turn/completed': {
+        const codexThreadId = this.snapshot.activeThreadId;
+        const codexTurnId = objectId(params.turn) ?? this.snapshot.activeTurnId;
+        const turnSerial = this.snapshot.turnSerial;
+        this.patch({ state: 'busy', approval: null, activeTurnId: null });
+        void this.finalizeCompletedTurn({ codexThreadId, codexTurnId, turnSerial });
         break;
+      }
       case 'turn/failed':
       case 'error':
         this.patch({ state: 'error', activeTurnId: null, approval: null });
