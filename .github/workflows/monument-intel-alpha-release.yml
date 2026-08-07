@@ -36,13 +36,16 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install desktop dependencies
+        run: npm install --no-audit --no-fund
+
       - name: Install Rust stable for Intel
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-apple-darwin
 
-      - name: Validate web and Codex contracts
+      - name: Validate production contracts
         run: |
           npm run check
           npm test
@@ -63,15 +66,32 @@ jobs:
         with:
           projectPath: apps/desktop
           tauriScript: npx tauri
-          tagName: monument-v0.1.0-alpha.1-intel
-          releaseName: 'Monument 0.1.0 Alpha 1 — Intel Mac'
+          tagName: monument-v0.2.0-alpha.1-intel
+          releaseName: 'Monument 0.2.0 Alpha 1 — Product Foundation — Intel Mac'
           releaseBody: |
-            First installable Monument alpha for Intel Macs (x86_64).
+            First product-first Monument alpha built on the real native runtime rather than the decorative shell.
+
+            Included in this alpha:
+            - React + TypeScript production UI
+            - real local project picker and repository inspection
+            - framework, package-manager, script, Git and file-tree discovery
+            - managed local dev-server runtime and live preview URL detection
+            - real Codex app-server connection and task/thread projection
+            - bidirectional server-request awareness for approval safety
+            - local SQLite application state and project restore
+            - progressive-disclosure Under the hood surface
+            - production guard preventing mock-data regressions
 
             Requirements:
-            - Intel Mac (including Core i9)
+            - Intel Mac (x86_64, including Core i9)
             - macOS 13 or newer
             - OpenAI Codex CLI installed and authenticated
+
+            Still intentionally incomplete:
+            - generated exact Codex approval bindings
+            - visual DOM inspector/source mapping
+            - deterministic evidence/review/ship gates
+            - Developer ID signing and notarization
 
             This alpha uses ad-hoc signing and is not notarized yet. macOS may require allowing Monument in System Settings → Privacy & Security on first launch.
           releaseCommitish: main
@@ -94,12 +114,12 @@ jobs:
           from pathlib import Path
           Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
               'status': 'published',
-              'version': '0.1.0-alpha.1',
+              'version': '0.2.0-alpha.1',
               'architecture': 'x86_64-apple-darwin',
               'runner': 'macos-15-intel',
               'minimum_macos': '13.0',
               'release_url': os.environ.get('RELEASE_URL', ''),
-              'asset_name': 'Monument-0.1.0-Intel-x86_64.dmg',
+              'asset_name': 'Monument-0.2.0-alpha.1-Intel-x86_64.dmg',
               'artifact_paths': os.environ.get('ARTIFACT_PATHS', ''),
               'signing': 'ad-hoc',
               'notarized': False
@@ -114,7 +134,7 @@ jobs:
           from pathlib import Path
           Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
               'status': 'failed',
-              'version': '0.1.0-alpha.1',
+              'version': '0.2.0-alpha.1',
               'architecture': 'x86_64-apple-darwin',
               'runner': 'macos-15-intel'
           }, indent=2) + '\n')
