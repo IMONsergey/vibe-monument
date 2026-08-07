@@ -46,6 +46,7 @@ jobs:
         run: cargo tauri icon src-tauri/icons/icon.png
 
       - name: Build and publish Intel DMG
+        id: publish
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -71,3 +72,38 @@ jobs:
           workflowArtifactNamePattern: 'Monument-Intel-x86_64-DMG'
           releaseAssetNamePattern: 'Monument-[version]-Intel-x86_64.[ext]'
           args: '--target x86_64-apple-darwin --bundles dmg'
+
+      - name: Record successful Intel release
+        if: success()
+        env:
+          RELEASE_URL: ${{ steps.publish.outputs.releaseHtmlUrl }}
+          ARTIFACT_PATHS: ${{ steps.publish.outputs.artifactPaths }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path('../..').resolve()
+          marker = root / 'builds' / 'monument-intel-alpha.json'
+          marker.parent.mkdir(parents=True, exist_ok=True)
+          marker.write_text(json.dumps({
+              'status': 'published',
+              'version': '0.1.0-alpha.1',
+              'architecture': 'x86_64-apple-darwin',
+              'runner': 'macos-15-intel',
+              'minimum_macos': '13.0',
+              'release_url': os.environ.get('RELEASE_URL', ''),
+              'asset_name': 'Monument-0.1.0-Intel-x86_64.dmg',
+              'artifact_paths': os.environ.get('ARTIFACT_PATHS', ''),
+              'source_sha': os.environ.get('RELEASE_SHA', ''),
+              'signing': 'ad-hoc',
+              'notarized': False
+          }, indent=2) + '\n')
+          PY
+          cd ../..
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/monument-intel-alpha.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: record published Intel alpha'
+          git push origin HEAD:main
