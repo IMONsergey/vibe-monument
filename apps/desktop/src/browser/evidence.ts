@@ -1,4 +1,5 @@
 import { invokeNative, listenNative, stateGet, stateSet } from '../host/native';
+import { recordTimelineBrowserQuality } from '../timeline/quality';
 
 export interface BrowserConsoleEvent {
   at: number;
@@ -126,6 +127,14 @@ export async function captureBrowserEvidence(projectId: string, turnSerial: numb
   };
   emit(record);
   await stateSet(evidenceKey(projectId), record).catch(() => undefined);
+  if (turnSerial > 0) {
+    await recordTimelineBrowserQuality(
+      projectId,
+      turnSerial,
+      browserEvidenceHasIssues(record) ? 'issues' : 'clean',
+      snapshot.capturedAt,
+    ).catch(() => undefined);
+  }
   return record;
 }
 
