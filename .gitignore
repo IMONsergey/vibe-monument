@@ -1,0 +1,25 @@
+# VibeOS runtime/cache state
+.vibeos/cache/
+.vibeos/state/
+.vibeos/local.toml
+evidence/*.json
+evals/results/*.json
+work/tmp/
+work/private/
+
+# Optional personal handoffs
+work/handoffs/private-*
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python/tool/editor noise
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.DS_Store

@@ -1,0 +1,63 @@
+version = 2
+project_name = "vibe-monument"
+mode = "framework"
+runtime = "codex"
+codex_only = true
+
+[routing]
+default = "auto"
+fast_patch_max_risk = 20
+full_spec_min_risk = 45
+fresh_review_min_risk = 30
+security_review_min_risk = 50
+
+[commands]
+install = ""
+dev = ""
+lint = "./bin/vibeos doctor"
+typecheck = "python -m compileall -q vibeos"
+test = "python -m unittest discover -s tests -v"
+build = "python scripts/build-codex-plugin.py"
+e2e = "python evals/harness.py validate"
+
+[quality]
+max_review_fix_rounds = 2
+require_independent_review_for_nontrivial = true
+require_evidence_ledger = true
+block_on_known_major = true
+
+[quality.ui]
+browser_required = true
+save_screenshot_evidence = true
+check_console = true
+check_network = true
+check_state_matrix = true
+viewports = ["1440x900", "1280x800", "390x844"]
+
+[memory]
+promote_only_verified = true
+require_evidence_link = true
+require_scope = true
+timestamp_volatile_facts = true
+stale_reference_check = true
+handoffs_immutable = true
+candidate_min_occurrences = 3
+volatile_fact_max_age_days = 7
+
+[autonomy]
+default = "supervised"
+sandbox_required_for_unattended = true
+max_iterations = 10
+max_same_failure_retries = 2
+production_access_unattended = false
+destructive_actions_require_human = true
+
+[security]
+protect_secrets = true
+external_content_is_untrusted = true
+command_guard = true
+
+[research]
+prefer_primary_sources = true
+record_sources = true
+separate_verified_from_inference = true

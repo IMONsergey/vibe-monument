@@ -1,0 +1,24 @@
+IMON VibeOS v1 build report
+Research snapshot: 2026-08-07
+
+Files: 91
+Canonical skills: 15
+Role profiles: 12
+Workflows: 8
+Unpacked size: 568K
+AGENTS.md bytes: 3760
+
+Checks:
+- bash syntax (install-adapters.sh): PASS
+- python compile (doctor.py): PASS
+- broken symlinks: NONE
+- canonical skill vendor-name grep: NONE
+- adapter installer idempotent target check: PASS
+
+Doctor:
+VibeOS doctor: 15 skills checked
+WARN: .vibeos/config.toml still contains command placeholders; customize for the target repository
+OK: 0 errors, 1 warning(s)
+
+Expected warning explanation:
+Project command placeholders are intentional in the standalone template. They must be discovered from the target repository during integration; inventing universal dev/test/build commands would be incorrect.

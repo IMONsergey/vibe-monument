@@ -1,0 +1,11 @@
+{
+  "id": "perf-001",
+  "class": "BUILD",
+  "request": "Optimize dedupe while preserving first-occurrence order for large inputs.",
+  "starting_commit": "fixture-generated-at-run",
+  "acceptance": [
+    "hidden_test.py exits 0"
+  ],
+  "permissions": "workspace-only; no network required",
+  "hidden_test": "hidden_test.py"
+}

@@ -1,0 +1,23 @@
+{
+  "interface": {
+    "displayName": "IMON VibeOS for Codex"
+  },
+  "name": "imon-vibeos",
+  "plugins": [
+    {
+      "category": "Developer Tools",
+      "name": "vibeos",
+      "policy": {
+        "authentication": "ON_INSTALL",
+        "installation": "AVAILABLE",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "source": {
+        "path": "./plugins/vibeos",
+        "source": "local"
+      }
+    }
+  ]
+}

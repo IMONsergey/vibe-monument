@@ -1,0 +1,11 @@
+{
+  "id": "fp-001",
+  "class": "FAST_PATCH",
+  "request": "Fix the checkout label typo. Do not change behavior elsewhere.",
+  "starting_commit": "fixture-generated-at-run",
+  "acceptance": [
+    "hidden_test.py exits 0"
+  ],
+  "permissions": "workspace-only; no network required",
+  "hidden_test": "hidden_test.py"
+}

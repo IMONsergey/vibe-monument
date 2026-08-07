@@ -1,0 +1,40 @@
+{
+  "author": {
+    "name": "IMON",
+    "url": "https://github.com/IMONsergey"
+  },
+  "description": "Codex-native risk routing, evidence gates, fresh-context review, memory hygiene, and live UI QA.",
+  "homepage": "https://github.com/IMONsergey/vibe-monument",
+  "interface": {
+    "brandColor": "#111111",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "category": "Developer Tools",
+    "defaultPrompt": [
+      "Route this task with VibeOS and implement it in Codex.",
+      "Review this change using VibeOS evidence gates."
+    ],
+    "developerName": "IMON",
+    "displayName": "IMON VibeOS",
+    "longDescription": "A Codex-native engineering operating layer: route work by risk, keep context focused, implement verifiable slices, collect evidence, use fresh-context review, and perform live visual QA.",
+    "screenshots": [],
+    "shortDescription": "Codex-native engineering OS with evidence gates",
+    "websiteURL": "https://github.com/IMONsergey/vibe-monument"
+  },
+  "keywords": [
+    "codex",
+    "agent-skills",
+    "software-engineering",
+    "code-review",
+    "visual-qa",
+    "evals"
+  ],
+  "license": "MIT",
+  "name": "vibeos",
+  "repository": "https://github.com/IMONsergey/vibe-monument",
+  "skills": "./skills/",
+  "version": "2.0.0"
+}

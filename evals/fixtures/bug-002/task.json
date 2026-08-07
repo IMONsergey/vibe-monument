@@ -1,0 +1,11 @@
+{
+  "id": "bug-002",
+  "class": "BUG",
+  "request": "Make queue enqueue idempotent by job_id and return whether a new job was accepted.",
+  "starting_commit": "fixture-generated-at-run",
+  "acceptance": [
+    "hidden_test.py exits 0"
+  ],
+  "permissions": "workspace-only; no network required",
+  "hidden_test": "hidden_test.py"
+}

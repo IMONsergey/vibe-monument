@@ -1,0 +1,11 @@
+{
+  "id": "build-001",
+  "class": "BUILD",
+  "request": "Implement slugify with lowercase ASCII slugs, punctuation collapsing, whitespace trimming, and common Latin diacritic normalization.",
+  "starting_commit": "fixture-generated-at-run",
+  "acceptance": [
+    "hidden_test.py exits 0"
+  ],
+  "permissions": "workspace-only; no network required",
+  "hidden_test": "hidden_test.py"
+}
