@@ -5,6 +5,7 @@ import {
   timelineForward,
   timelineInit,
   timelineRestore,
+  timelineSetActivePath,
   timelineSnapshot,
   timelineStatus,
 } from '../host/native';
@@ -81,8 +82,23 @@ export async function restoreTimelineVersion(
   return timelineRestore(project.rootPath, project.id, checkpointId);
 }
 
-export async function backTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
-  return timelineBack(project.rootPath, project.id);
+export async function backTimeline(
+  project: ProjectInspection,
+  activePathId: string,
+): Promise<TimelineRestoreResult> {
+  const result = await timelineBack(project.rootPath, project.id);
+  if (activePathId && result.state.activePathId !== activePathId) {
+    await timelineSetActivePath(project.id, activePathId);
+    const next = result.state.checkpoints
+      .filter((checkpoint) => checkpoint.parentId === result.target.id && checkpoint.pathId === activePathId)
+      .sort((left, right) => left.sequence - right.sequence)[0] ?? null;
+    result.state = {
+      ...result.state,
+      activePathId,
+      forwardCheckpointId: next?.id ?? null,
+    };
+  }
+  return result;
 }
 
 export async function forwardTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
