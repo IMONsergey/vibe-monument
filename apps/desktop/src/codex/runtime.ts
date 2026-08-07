@@ -16,6 +16,7 @@ export type RuntimeSnapshot = {
   threads: CodexThreadSummary[];
   activeThreadId: string | null;
   activeTurnId: string | null;
+  completionSerial: number;
   message: string;
   account: CodexAccountSnapshot | null;
   approval: ApprovalRequest | null;
@@ -139,6 +140,7 @@ export class CodexRuntime {
     threads: [],
     activeThreadId: null,
     activeTurnId: null,
+    completionSerial: 0,
     message: '',
     account: null,
     approval: null,
@@ -414,8 +416,13 @@ export class CodexRuntime {
         }
         break;
       case 'turn/completed':
-        this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', approval: null, activeTurnId: null });
-        this.activity('review', 'Request completed', 'Verification gates will attach evidence before Monument marks work ready to ship.');
+        this.patch({
+          state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready',
+          approval: null,
+          activeTurnId: null,
+          completionSerial: this.snapshot.completionSerial + 1,
+        });
+        this.activity('review', 'Request completed', 'Deterministic verification starts separately; completion alone is not proof.');
         break;
       case 'turn/failed':
       case 'error':
