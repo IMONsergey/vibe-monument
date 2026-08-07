@@ -22,6 +22,7 @@ export interface VerificationResult {
 export interface VerificationEvidence {
   id: string;
   projectId: string;
+  turnSerial: number;
   trigger: 'codex-turn' | 'manual';
   status: 'running' | 'passed' | 'failed' | 'no-checks' | 'error';
   startedAt: number;
@@ -50,10 +51,11 @@ function emit(progress: VerificationProgress): void {
   for (const listener of listeners) listener(progress);
 }
 
-function newEvidence(projectId: string, trigger: VerificationEvidence['trigger'], plan: VerificationPlanItem[]): VerificationEvidence {
+function newEvidence(projectId: string, trigger: VerificationEvidence['trigger'], plan: VerificationPlanItem[], turnSerial: number): VerificationEvidence {
   return {
     id: `evidence-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     projectId,
+    turnSerial,
     trigger,
     status: plan.some((item) => item.automatic) || trigger === 'manual' ? 'running' : 'no-checks',
     startedAt: Date.now(),
@@ -90,17 +92,19 @@ export async function runVerification({
   projectRoot,
   trigger,
   includeManual = false,
+  turnSerial = 0,
 }: {
   projectId: string;
   projectRoot: string;
   trigger: VerificationEvidence['trigger'];
   includeManual?: boolean;
+  turnSerial?: number;
 }): Promise<VerificationEvidence> {
   let plan: VerificationPlanItem[] = [];
   try {
     plan = await loadVerificationPlan(projectRoot);
   } catch (error) {
-    const evidence = newEvidence(projectId, trigger, []);
+    const evidence = newEvidence(projectId, trigger, [], turnSerial);
     evidence.status = 'error';
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
@@ -109,7 +113,7 @@ export async function runVerification({
     return evidence;
   }
 
-  const evidence = newEvidence(projectId, trigger, plan);
+  const evidence = newEvidence(projectId, trigger, plan, turnSerial);
   const selected = plan.filter((item) => includeManual || item.automatic).slice(0, 5);
   if (!selected.length) {
     evidence.status = 'no-checks';
