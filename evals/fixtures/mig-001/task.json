@@ -1,0 +1,11 @@
+{
+  "id": "mig-001",
+  "class": "MIGRATION",
+  "request": "Make the record migration from schema v1 name -> v2 display_name safe, non-mutating, and idempotent for already-migrated records.",
+  "starting_commit": "fixture-generated-at-run",
+  "acceptance": [
+    "hidden_test.py exits 0"
+  ],
+  "permissions": "workspace-only; no network required",
+  "hidden_test": "hidden_test.py"
+}

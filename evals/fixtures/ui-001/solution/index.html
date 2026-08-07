@@ -1,0 +1,3 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>.nav{display:flex;align-items:center;gap:1rem}.menu{display:none}@media (max-width: 600px){.nav>a{display:none}.menu{display:inline-flex}}</style></head><body>
+<nav class="nav" aria-label="Primary"><button class="menu" type="button" aria-label="Open menu" aria-expanded="false" onclick="openMenu(this)">Menu</button><a href="/">Home</a></nav>
+<script>function openMenu(btn){document.body.classList.toggle('open');btn.setAttribute('aria-expanded',document.body.classList.contains('open')?'true':'false')}</script></body></html>

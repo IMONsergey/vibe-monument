@@ -1,0 +1,74 @@
+version = 2
+
+[workflows.FAST_PATCH]
+core_skills = ["inspect-codebase", "implement-slice", "verify-change"]
+conditional_skills = ["code-review", "visual-qa"]
+base_risk = 5
+
+[workflows.BUILD]
+core_skills = ["inspect-codebase", "clarify-spec", "plan-slices", "implement-slice", "verify-change", "code-review"]
+conditional_skills = ["tdd-loop", "security-review", "visual-qa", "adversarial-doubt", "create-handoff", "promote-learning"]
+base_risk = 25
+
+[workflows.BUG]
+core_skills = ["inspect-codebase", "debug-root-cause", "verify-change", "code-review"]
+conditional_skills = ["tdd-loop", "security-review", "adversarial-doubt", "create-handoff", "promote-learning"]
+base_risk = 25
+
+[workflows.UI]
+core_skills = ["inspect-codebase", "clarify-spec", "plan-slices", "implement-slice", "visual-qa", "accessibility-review", "verify-change", "code-review"]
+conditional_skills = ["tdd-loop", "security-review", "performance-check", "ui-reference-fidelity", "create-handoff", "promote-learning"]
+base_risk = 30
+
+[workflows.RESEARCH]
+core_skills = ["research-primary"]
+conditional_skills = ["adversarial-doubt", "create-handoff"]
+base_risk = 10
+
+[workflows.EPIC]
+core_skills = ["inspect-codebase", "research-primary", "clarify-spec", "plan-slices", "context-pack", "implement-slice", "verify-change", "code-review"]
+conditional_skills = ["tdd-loop", "security-review", "visual-qa", "performance-check", "adversarial-doubt", "create-handoff", "promote-learning"]
+base_risk = 45
+
+[workflows.REVIEW]
+core_skills = ["code-review", "verify-change"]
+conditional_skills = ["security-review", "visual-qa", "accessibility-review", "performance-check", "adversarial-doubt"]
+base_risk = 15
+
+[workflows.SHIP]
+core_skills = ["verify-change", "code-review", "ship-change"]
+conditional_skills = ["security-review", "visual-qa", "performance-check", "migration-safety", "promote-learning"]
+base_risk = 35
+
+[workflows.MIGRATION]
+core_skills = ["inspect-codebase", "clarify-spec", "plan-slices", "migration-safety", "implement-slice", "verify-change", "code-review"]
+conditional_skills = ["security-review", "adversarial-doubt", "create-handoff"]
+base_risk = 60
+
+[workflows.DEPENDENCY]
+core_skills = ["inspect-codebase", "dependency-upgrade", "implement-slice", "verify-change", "code-review"]
+conditional_skills = ["research-primary", "security-review", "migration-safety", "create-handoff"]
+base_risk = 35
+
+[workflows.INCIDENT]
+core_skills = ["incident-triage", "debug-root-cause", "verify-change", "code-review"]
+conditional_skills = ["security-review", "adversarial-doubt", "create-handoff", "promote-learning"]
+base_risk = 70
+
+[risk_weights]
+unclear_acceptance = 20
+public_api_or_contract = 25
+data_model_or_migration = 35
+auth_permissions_security = 40
+destructive_or_irreversible = 45
+production_or_billing = 40
+multi_module = 15
+user_facing_ui = 10
+external_dependency_change = 15
+novel_or_unfamiliar_code = 10
+incident_or_outage = 40
+
+[hard_routes]
+data_model_or_migration = "MIGRATION"
+incident_or_outage = "INCIDENT"
+external_dependency_change = "DEPENDENCY"

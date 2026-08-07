@@ -1,0 +1,11 @@
+{
+  "id": "dep-001",
+  "class": "DEPENDENCY",
+  "request": "Update the wrapper for the bundled SDK v2 API. Preserve load(resource) public behavior.",
+  "starting_commit": "fixture-generated-at-run",
+  "acceptance": [
+    "hidden_test.py exits 0"
+  ],
+  "permissions": "workspace-only; no network required",
+  "hidden_test": "hidden_test.py"
+}

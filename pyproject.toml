@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imon-vibeos"
+version = "2.0.0"
+description = "Codex-native risk-routed, evidence-driven engineering operating system"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "IMON"}]
+dependencies = []
+
+[project.scripts]
+vibeos = "vibeos.cli:main"
+
+[tool.setuptools]
+packages = ["vibeos"]
