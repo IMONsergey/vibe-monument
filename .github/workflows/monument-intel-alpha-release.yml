@@ -48,11 +48,11 @@ jobs:
           npm test
           npm run build
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version '^2' --locked
+      - name: Install prebuilt Tauri CLI
+        run: npm install --no-save @tauri-apps/cli@latest
 
       - name: Generate complete macOS icon set
-        run: cargo tauri icon src-tauri/icons/icon.png
+        run: npx tauri icon src-tauri/icons/icon.png
 
       - name: Build and publish Intel DMG
         id: publish
@@ -62,7 +62,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: '-'
         with:
           projectPath: apps/desktop
-          tauriScript: cargo tauri
+          tauriScript: npx tauri
           tagName: monument-v0.1.0-alpha.1-intel
           releaseName: 'Monument 0.1.0 Alpha 1 — Intel Mac'
           releaseBody: |
