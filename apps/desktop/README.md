@@ -2,40 +2,79 @@
 
 > Codename. Commercial naming has not been trademark-cleared.
 
-Monument is a product-first macOS building environment powered by OpenAI Codex. The live artifact and a natural-language composer are the default experience; repository, Git, runtime and evidence machinery is progressively disclosed only when it is useful.
+Monument is a product-first macOS building environment powered by OpenAI Codex. The live product and one natural-language composer are the default experience; repository, Git, runtime, protocol and verification machinery is progressively disclosed only when it is useful.
 
-The production direction is defined in [`docs/PRODUCT_PRINCIPLES_V2.md`](docs/PRODUCT_PRINCIPLES_V2.md).
+The product invariant is defined in [`docs/PRODUCT_PRINCIPLES_V2.md`](docs/PRODUCT_PRINCIPLES_V2.md).
 
 ## Product rule
 
 > Here is my product. Tell Monument what it should become.
 
-Monument is deliberately not an IDE with an AI sidebar. The engine may use Codex threads, Git/worktrees, process supervision and VibeOS verification, but routine users should not have to operate those mechanisms manually.
+Monument is deliberately not an IDE with an AI sidebar. Under the hood it can use Codex threads, approvals, local runtimes, Git/worktrees and VibeOS verification, but routine users should not have to operate those mechanisms manually.
 
-## 0.2 product foundation
+## Current alpha — 0.2.0-alpha.3
 
-The current production branch introduces the first real vertical slice:
+The packaged desktop app is no longer the original decorative prototype. The current production path contains real native services and a real Select → Codex vertical slice.
 
-- React + TypeScript + Vite production shell;
+### Product shell
+
+- React + TypeScript + Vite production UI;
 - native macOS project picker;
 - real repository/framework/package-manager/script detection;
-- real Git branch/remote/change-count detection;
-- bounded real file tree (secrets and build/cache directories excluded);
-- managed local dev-server runtime with stdout/stderr streaming;
-- automatic localhost preview URL detection;
-- real live product iframe with desktop/mobile viewports;
-- native-only packaged Codex transport;
-- bidirectional App Server request awareness;
-- real Codex thread/task list and streamed agent message projection;
-- local SQLite app-state persistence;
-- explicit `Under the hood` activity/files/runtime surface;
-- CI guard forbidding production imports of prototype mock data.
+- real Git branch/remote/change-count discovery;
+- bounded real file tree with build/cache/secret exclusions;
+- local SQLite project/UI restoration;
+- progressive-disclosure `Under the hood` surfaces.
 
-The legacy static prototype files remain temporarily for historical regression tests, but the packaged production entrypoint is `src/main.tsx` and must not import them.
+### Runtime
+
+- managed local `dev`, `start`, or `preview` process;
+- argv execution rather than interpolated shell commands;
+- stdout/stderr streaming;
+- automatic loopback preview URL discovery;
+- process-group cleanup.
+
+### Codex
+
+- one managed `codex app-server --stdio` child;
+- bidirectional JSON-RPC;
+- real threads/tasks and streaming turns;
+- current `turn/start` text input contract;
+- active-turn interrupt;
+- bounded retry for App Server saturation;
+- command, file-change and granular permission approvals;
+- inline `request_user_input` questions;
+- safe fallback for unsupported server request types;
+- Codex-managed ChatGPT login recovery;
+- actual Codex binary/version diagnostics;
+- installed-binary JSON Schema compatibility probe.
+
+### Live product Select / Inspect
+
+The native app uses a dedicated child WKWebView for the real local product preview.
+
+- press Select or `I`;
+- hover outlines a real rendered element;
+- click captures bounded runtime context;
+- the UI shows a small selected-element chip rather than raw DOM data;
+- the next Codex turn automatically receives URL/viewport/DOM/accessibility/rect/style context;
+- Monument performs a bounded deterministic source search and attaches ranked source hints;
+- Codex is told to inspect candidate source before editing rather than trusting a fabricated source location;
+- selection is one-turn context and is cleared after send/new task/project switch/runtime stop.
+
+See [`docs/VISUAL_CONTEXT.md`](docs/VISUAL_CONTEXT.md).
+
+## Native preview security boundary
+
+- only loopback HTTP(S) preview URLs are accepted;
+- top-level navigation stays on the exact starting origin (scheme + host + port);
+- the inspected page does not receive broad Tauri IPC privileges;
+- the inspector is injected by the native host and is never written into the user's repository;
+- observed page text/DOM/styles are data, not trusted instructions.
 
 ## Run the web shell
 
-The browser shell is useful for visual development, but native project/Codex/runtime actions intentionally report unavailable outside Tauri rather than silently substituting fake product data.
+The browser shell is useful for layout/product development. Native project/Codex/runtime/Select actions intentionally remain native-only instead of silently substituting fake product data.
 
 ```bash
 cd apps/desktop
@@ -52,7 +91,7 @@ npm install --no-save @tauri-apps/cli@latest
 npx tauri dev
 ```
 
-The native app expects an installed and authenticated Codex CLI. The host resolves Codex from GUI-safe macOS locations rather than assuming a login-shell PATH.
+The native app resolves Codex from GUI-safe macOS locations and can start Codex-managed ChatGPT login when authentication is required.
 
 ## Validate
 
@@ -67,35 +106,42 @@ cd src-tauri
 cargo test --all-targets
 ```
 
-CI runs the web/type contract on Linux and the native Rust contract on macOS.
+CI runs the web/type/source contract and the native Rust contract independently. The source contract also rejects production mock imports, legacy Codex payloads, broad remote preview IPC, shell-interpolated runtimes, release-version drift and broken Select→context→source-hints wiring.
 
-## Current product flow
+## Intel release gate
+
+`0.2.0-alpha.3` replaces the opaque combined build/publish action with an explicit pipeline:
+
+1. validate web/protocol/native contracts;
+2. build an `x86_64-apple-darwin` DMG;
+3. mount the DMG;
+4. locate the packaged `.app` and executable;
+5. verify `x86_64` using `lipo`;
+6. verify code signature and `Info.plist`;
+7. calculate SHA-256;
+8. publish the GitHub prerelease explicitly;
+9. persist a release marker, including the failed stage when publication does not complete.
+
+The current alpha remains ad-hoc signed and is not notarized yet.
+
+## Current user flow
 
 1. Launch Monument.
 2. Open a real local repository.
-3. Monument inspects project metadata without executing project code.
-4. Start the detected `dev`, `start`, or `preview` script explicitly.
-5. Monument supervises the process and discovers the local preview URL.
-6. Work on the real live product from the central canvas.
-7. Use the single composer to create/continue real Codex tasks.
-8. Open `Under the hood` only when activity, files or runtime output is useful.
+3. Monument inspects it without running project code.
+4. Explicitly start the detected local runtime.
+5. Work on the real product in the central preview.
+6. Give Codex a normal task through the single composer.
+7. For visual edits, press `I`, click the element and describe the desired change.
+8. Respond to approvals/questions inline only when Codex actually needs attention.
+9. Open `Under the hood` only when files, activity, runtime output or diagnostics are useful.
 
-## Important safety boundaries
+## Next product gates
 
-- opening a folder does not run package scripts;
-- production UI does not invent success/test/evidence states;
-- project scripts are launched as bounded argv commands, not interpolated through `sh -c`;
-- environment files and common build/cache directories are excluded from the product file tree;
-- Codex sandbox/approval semantics remain authoritative;
-- server approval/request shapes are detected but not guessed before generated protocol bindings are installed;
-- Codex conversation history remains owned by Codex; Monument persists only local app/project linkage and UI state.
+1. Real Git task branches/worktrees + human version history/diff ergonomics.
+2. Deterministic build/test/typecheck evidence after Codex changes.
+3. Preview console/runtime/network evidence and responsive viewport matrix.
+4. Automatic repair loop followed by fresh-context review and ship gates.
+5. Crash/session recovery hardening, Developer ID signing, notarization and signed updater.
 
-## Next gates
-
-1. Generated exact Codex App Server protocol + real approval UI.
-2. Instrumented preview Select/Inspect mode with DOM/style/source/screenshot context.
-3. Git task branches/worktrees + real diff/history ergonomics.
-4. Deterministic build/test/browser evidence, VibeOS review and repair loops.
-5. Crash recovery, signing/notarization and signed updates.
-
-See [`docs/PRODUCT_PRINCIPLES_V2.md`](docs/PRODUCT_PRINCIPLES_V2.md) for the invariant product model and the existing architecture documents for the deeper runtime design.
+The legacy static prototype files remain temporarily for historical regression tests, but the packaged production entrypoint is `src/main.tsx` and must never import mock product state.
