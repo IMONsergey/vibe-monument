@@ -139,6 +139,22 @@ export class CodexClient {
     return this.request('account/read', { refreshToken });
   }
 
+  startChatGptLogin(): Promise<unknown> {
+    return this.request('account/login/start', {
+      type: 'chatgpt',
+      useHostedLoginSuccessPage: true,
+      appBrand: 'codex',
+    });
+  }
+
+  cancelLogin(loginId: string): Promise<unknown> {
+    return this.request('account/login/cancel', { loginId });
+  }
+
+  logout(): Promise<unknown> {
+    return this.request('account/logout', {});
+  }
+
   private async requestOnce<T>(method: string, params: unknown): Promise<T> {
     const id = this.nextId++;
     const response = new Promise<T>((resolve, reject) => {
