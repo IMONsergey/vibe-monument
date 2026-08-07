@@ -9,25 +9,37 @@ function compact(value: string, limit = 92): string {
 export function PromptQueue({
   state,
   dispatching,
+  blockedByEvidence,
   onTogglePause,
+  onContinueAnyway,
   onMove,
   onRemove,
 }: {
   state: PromptQueueState | null;
   dispatching: boolean;
+  blockedByEvidence: boolean;
   onTogglePause: () => void;
+  onContinueAnyway: () => void;
   onMove: (itemId: string, direction: -1 | 1) => void;
   onRemove: (itemId: string) => void;
 }) {
   if (!state?.items.length) return null;
+  const status = blockedByEvidence
+    ? 'Blocked by current failed evidence'
+    : state.paused
+      ? 'Queue paused'
+      : 'Runs after the current build and verification finish';
   return (
-    <div className={`prompt-queue ${state.paused ? 'paused' : ''}`}>
+    <div className={`prompt-queue ${state.paused ? 'paused' : ''} ${blockedByEvidence ? 'blocked' : ''}`}>
       <div className="prompt-queue-header">
         <div>
           <strong>{dispatching ? 'Starting next…' : `${state.items.length} next`}</strong>
-          <span>{state.paused ? 'Queue paused' : 'Runs after the current build and verification finish'}</span>
+          <span>{status}</span>
         </div>
-        <button type="button" onClick={onTogglePause}>{state.paused ? 'Resume' : 'Pause'}</button>
+        <div className="prompt-queue-header-actions">
+          {blockedByEvidence ? <button type="button" onClick={onContinueAnyway}>Continue anyway</button> : null}
+          <button type="button" onClick={onTogglePause}>{state.paused ? 'Resume' : 'Pause'}</button>
+        </div>
       </div>
       <div className="prompt-queue-items">
         {state.items.map((item, index) => (
