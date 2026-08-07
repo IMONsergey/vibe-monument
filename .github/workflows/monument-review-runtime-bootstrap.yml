@@ -1,0 +1,282 @@
+name: Monument Detached Fresh Review Runtime Bootstrap
+
+on:
+  push:
+    branches: [feature/codex-plan-review-v3]
+    paths:
+      - '.github/workflows/monument-review-runtime-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/codex-plan-review-v3
+          fetch-depth: 0
+
+      - name: Wait for finalized Plan gate
+        run: |
+          for attempt in $(seq 1 24); do
+            git fetch origin feature/codex-plan-review-v3
+            git reset --hard origin/feature/codex-plan-review-v3
+            if grep -q 'PlanCard' apps/desktop/src/App.tsx \
+              && grep -q 'private async startPlan' apps/desktop/src/codex/runtime.ts \
+              && grep -q 'codex-plan-mode.test.js' <(find apps/desktop/tests -maxdepth 1 -type f -printf '%f\n') \
+              && [ ! -f .github/workflows/monument-plan-gate-finalize.yml ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Finalized Plan gate did not land in time' >&2
+          exit 1
+
+      - name: Wire detached review runtime
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/desktop/src/codex/runtime.ts')
+          text = path.read_text()
+
+          def once(old, new, label):
+              global text
+              if old not in text:
+                  raise SystemExit(f'missing Review runtime anchor: {label}')
+              text = text.replace(old, new, 1)
+
+          if "from './review'" not in text:
+              once(
+                  "import { CODEX_PLAN_REQUEST_EVENT, publishCodexPlanState, type CodexPlanRequest } from './plan';\n",
+                  "import { CODEX_PLAN_REQUEST_EVENT, publishCodexPlanState, type CodexPlanRequest } from './plan';\nimport { CODEX_REVIEW_REQUEST_EVENT, publishCodexReviewState, type CodexReviewRequest } from './review';\n",
+                  'review import',
+              )
+
+          if 'function nestedString(' not in text:
+              anchor = "function findPlanMode(value: unknown): unknown | null {"
+              helpers = '''function nestedString(value: unknown, keys: Set<string>): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const [key, candidate] of Object.entries(record)) {
+    if (keys.has(key) && typeof candidate === 'string' && candidate) return candidate;
+  }
+  for (const candidate of Object.values(record)) {
+    if (candidate && typeof candidate === 'object') {
+      const found = nestedString(candidate, keys);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function notificationThreadId(value: unknown): string | null {
+  return nestedString(value, new Set(['threadId', 'reviewThreadId']));
+}
+
+function notificationTurnId(value: unknown): string | null {
+  const direct = nestedString(value, new Set(['turnId']));
+  if (direct) return direct;
+  const record = recordOf(value);
+  return objectId(record.turn);
+}
+
+function reviewTextFromThread(value: unknown): string {
+  const candidates: string[] = [];
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    const record = node as Record<string, unknown>;
+    const type = typeof record.type === 'string' ? record.type.toLowerCase() : '';
+    if (type.includes('agentmessage') || type.includes('review')) {
+      for (const key of ['text', 'message', 'content']) {
+        const candidate = record[key];
+        if (typeof candidate === 'string' && candidate.trim()) candidates.push(candidate.trim());
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(value);
+  return candidates.at(-1) ?? '';
+}
+
+'''
+              once(anchor, helpers + anchor, 'review protocol helpers')
+
+          if 'private reviewThreadId' not in text:
+              once(
+                  "  private planSawStructuredDelta = false;\n",
+                  "  private planSawStructuredDelta = false;\n  private reviewThreadId: string | null = null;\n  private reviewTurnId: string | null = null;\n  private reviewText = '';\n  private reviewBaseThreadId: string | null = null;\n",
+                  'review state fields',
+              )
+
+          if 'CODEX_REVIEW_REQUEST_EVENT, this.handleReviewRequest' not in text:
+              once(
+                  "      window.addEventListener(CODEX_PLAN_REQUEST_EVENT, this.handlePlanRequest);\n",
+                  "      window.addEventListener(CODEX_PLAN_REQUEST_EVENT, this.handlePlanRequest);\n      window.addEventListener(CODEX_REVIEW_REQUEST_EVENT, this.handleReviewRequest);\n",
+                  'review request listener',
+              )
+
+          if 'private readonly handleReviewRequest' not in text:
+              anchor = "  private readonly handlePlanRequest = (event: Event) => {"
+              methods = '''  private readonly handleReviewRequest = (event: Event) => {
+    const request = (event as CustomEvent<CodexReviewRequest>).detail;
+    if (!request) return;
+    void this.startFreshReview(request);
+  };
+
+  private async startFreshReview(request: CodexReviewRequest): Promise<void> {
+    if (!this.connected || this.snapshot.state !== 'ready' || this.snapshot.activeTurnId || this.reviewThreadId) {
+      publishCodexReviewState({ status: 'error', text: '', reviewThreadId: null, turnId: null, error: 'Codex is not ready for Fresh Review.', startedAt: Date.now() });
+      return;
+    }
+    if (this.snapshot.account && !this.snapshot.account.readyForTurns) {
+      publishCodexReviewState({ status: 'error', text: '', reviewThreadId: null, turnId: null, error: 'Sign in to Codex before reviewing.', startedAt: Date.now() });
+      return;
+    }
+
+    this.patch({ state: 'busy', message: '', approval: null });
+    publishCodexReviewState({ status: 'working', text: '', reviewThreadId: null, turnId: null, error: null, startedAt: Date.now() });
+    let baseThreadId = this.snapshot.activeThreadId;
+    try {
+      if (!baseThreadId) {
+        const created = await this.client.startThread({ cwd: request.projectRoot });
+        const record = recordOf(created);
+        const thread = asThread(record.thread ?? created);
+        if (!thread) throw new Error('Codex did not return a base thread id for Fresh Review');
+        baseThreadId = thread.id;
+        this.patch({ threads: [thread, ...this.snapshot.threads], activeThreadId: thread.id });
+      }
+
+      const started = await this.client.startReview(baseThreadId, request.target ?? { type: 'uncommittedChanges' }, 'detached');
+      const reviewThreadId = nestedString(started, new Set(['reviewThreadId', 'threadId']));
+      const turnId = nestedString(started, new Set(['turnId'])) ?? objectId(recordOf(started).turn);
+      if (!reviewThreadId || reviewThreadId === baseThreadId) {
+        throw new Error('Codex did not return a distinct detached review thread; independent review cannot be guaranteed');
+      }
+      this.reviewBaseThreadId = baseThreadId;
+      this.reviewThreadId = reviewThreadId;
+      this.reviewTurnId = turnId;
+      this.reviewText = '';
+      this.activity('review', 'Fresh Review started', 'Detached Codex thread · uncommitted changes');
+      publishCodexReviewState({ status: 'working', text: '', reviewThreadId, turnId, error: null, startedAt: Date.now() });
+    } catch (error) {
+      this.reviewThreadId = null;
+      this.reviewTurnId = null;
+      this.reviewText = '';
+      this.reviewBaseThreadId = null;
+      this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', activeTurnId: null, approval: null });
+      const message = String(error instanceof Error ? error.message : error);
+      publishCodexReviewState({ status: 'error', text: '', reviewThreadId: null, turnId: null, error: message, startedAt: Date.now() });
+      this.activity('error', 'Fresh Review unavailable', message);
+    }
+  }
+
+  private isReviewNotification(params: Record<string, unknown>): boolean {
+    if (!this.reviewThreadId) return false;
+    const threadId = notificationThreadId(params);
+    if (threadId && threadId === this.reviewThreadId) return true;
+    const turnId = notificationTurnId(params);
+    return Boolean(this.reviewTurnId && turnId && turnId === this.reviewTurnId);
+  }
+
+  private projectReviewNotification(message: RpcMessage): void {
+    const params = recordOf(message.params);
+    switch (message.method) {
+      case 'turn/started': {
+        const turnId = notificationTurnId(params) ?? this.reviewTurnId;
+        if (turnId) this.reviewTurnId = turnId;
+        publishCodexReviewState({ status: 'working', text: this.reviewText, reviewThreadId: this.reviewThreadId, turnId: this.reviewTurnId, error: null, startedAt: Date.now() });
+        break;
+      }
+      case 'item/agentMessage/delta':
+        if (typeof params.delta === 'string') {
+          this.reviewText += params.delta;
+          publishCodexReviewState({ status: 'working', text: this.reviewText, reviewThreadId: this.reviewThreadId, turnId: this.reviewTurnId, error: null, startedAt: Date.now() });
+        }
+        break;
+      case 'turn/completed': {
+        const reviewThreadId = this.reviewThreadId;
+        const reviewTurnId = notificationTurnId(params) ?? this.reviewTurnId;
+        void (async () => {
+          let text = this.reviewText.trim();
+          if (!text && reviewThreadId) {
+            const thread = await this.client.readThread(reviewThreadId).catch(() => null);
+            if (thread) text = reviewTextFromThread(thread);
+          }
+          publishCodexReviewState({
+            status: 'ready',
+            text,
+            reviewThreadId,
+            turnId: reviewTurnId,
+            error: text ? null : 'Fresh Review completed without a review body.',
+            startedAt: Date.now(),
+          });
+          this.activity('review', 'Fresh Review ready', text ? 'Independent review completed.' : 'Review completed without readable findings.');
+          this.reviewThreadId = null;
+          this.reviewTurnId = null;
+          this.reviewText = '';
+          this.reviewBaseThreadId = null;
+          this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', activeTurnId: null, approval: null });
+        })();
+        break;
+      }
+      case 'turn/failed':
+      case 'error': {
+        const detail = typeof params.error === 'string' ? params.error : 'Detached Fresh Review failed.';
+        publishCodexReviewState({ status: 'error', text: this.reviewText, reviewThreadId: this.reviewThreadId, turnId: this.reviewTurnId, error: detail, startedAt: Date.now() });
+        this.reviewThreadId = null;
+        this.reviewTurnId = null;
+        this.reviewText = '';
+        this.reviewBaseThreadId = null;
+        this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', activeTurnId: null, approval: null });
+        this.activity('error', 'Fresh Review failed', detail);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+'''
+              once(anchor, methods + anchor, 'review runtime methods')
+
+          if 'publishCodexReviewState({ status: \'idle\'' not in text:
+              once(
+                  "    publishCodexPlanState({ status: 'idle', userText: '', text: '', threadId: null, turnId: null, error: null });\n",
+                  "    publishCodexPlanState({ status: 'idle', userText: '', text: '', threadId: null, turnId: null, error: null });\n    this.reviewThreadId = null;\n    this.reviewTurnId = null;\n    this.reviewText = '';\n    this.reviewBaseThreadId = null;\n    publishCodexReviewState({ status: 'idle', text: '', reviewThreadId: null, turnId: null, error: null, startedAt: null });\n",
+                  'clear review on Timeline restore',
+              )
+
+          switch_anchor = "  private projectNotification(message: RpcMessage): void {\n    const params = recordOf(message.params);\n    switch (message.method) {"
+          if switch_anchor in text and 'if (this.isReviewNotification(params))' not in text[text.find(switch_anchor):text.find(switch_anchor)+300]:
+              replacement = "  private projectNotification(message: RpcMessage): void {\n    const params = recordOf(message.params);\n    if (this.isReviewNotification(params)) {\n      this.projectReviewNotification(message);\n      return;\n    }\n    switch (message.method) {"
+              text = text.replace(switch_anchor, replacement, 1)
+
+          path.write_text(text)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate detached Review runtime compiles
+        working-directory: apps/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+          npm run build
+
+      - name: Commit detached Review runtime and remove bootstrap workflow
+        run: |
+          git rm -f .github/workflows/monument-review-runtime-bootstrap.yml
+          git add apps/desktop/src/codex/runtime.ts
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: add detached official Codex Fresh Review runtime'
+          git push origin HEAD:feature/codex-plan-review-v3
