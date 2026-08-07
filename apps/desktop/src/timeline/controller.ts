@@ -52,6 +52,15 @@ export async function prepareTimeline(project: ProjectInspection): Promise<Timel
   return timelineInit(project.rootPath, timelineProjectId(project));
 }
 
+export async function currentTimelineTurnSerial(projectId: string, fallback: number): Promise<number | null> {
+  const project = activeTimelineProject;
+  if (!project || project.id !== projectId) return fallback;
+  const state = await timelineInit(project.rootPath, timelineProjectId(project));
+  if (state.dirty) return null;
+  const current = state.checkpoints.find((checkpoint) => checkpoint.id === state.currentCheckpointId) ?? null;
+  return current?.turnSerial ?? null;
+}
+
 export function rememberTimelinePrompt(projectId: string, userPrompt: string): void {
   pendingPrompts.set(projectId, userPrompt.trim());
 }
