@@ -4,7 +4,8 @@ pub const BROWSER_EVIDENCE_PREFIX: &str = "__MONUMENT_BROWSER_EVIDENCE__:";
 pub const MAX_CONSOLE_EVENTS: usize = 60;
 pub const MAX_RUNTIME_EVENTS: usize = 40;
 pub const MAX_NETWORK_EVENTS: usize = 80;
-pub const MAX_EVENT_TEXT: usize = 1_000;
+pub const MAX_EVENT_TEXT: usize = 600;
+pub const MAX_PAYLOAD_BYTES: usize = 48 * 1024;
 pub const SLOW_REQUEST_MS: u64 = 2_000;
 
 pub const BROWSER_EVIDENCE_SCRIPT: &str = r#"
@@ -12,7 +13,7 @@ pub const BROWSER_EVIDENCE_SCRIPT: &str = r#"
   const allowed = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1';
   if (!allowed || window.__MONUMENT_BROWSER_EVIDENCE__) return;
 
-  const LIMITS = { console: 60, runtime: 40, network: 80, text: 1000, slowMs: 2000 };
+  const LIMITS = { console: 60, runtime: 40, network: 80, text: 600, slowMs: 2000 };
   const state = {
     installedAt: Date.now(),
     console: [],
@@ -30,6 +31,11 @@ pub const BROWSER_EVIDENCE_SCRIPT: &str = r#"
       try { text = String(value); } catch (_) { text = '[unprintable]'; }
     }
     text = String(text || '').replace(/\s+/g, ' ').trim();
+    text = text
+      .replace(/\bBearer\s+[A-Za-z0-9._~+\/=-]{8,}/gi, 'Bearer [redacted]')
+      .replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[baprs]-[A-Za-z0-9-]{12,})\b/g, '[redacted-token]')
+      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[redacted-jwt]')
+      .replace(/([?&][^\s=&#]{1,40}=)[^\s&#]+/g, '$1[redacted]');
     return text.length <= max ? text : `${text.slice(0, max)}…`;
   };
 
@@ -133,9 +139,9 @@ pub const BROWSER_EVIDENCE_SCRIPT: &str = r#"
           readyState: document.readyState,
           viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
         },
-        console: state.console.slice(),
-        runtime: state.runtime.slice(),
-        network: state.network.slice(),
+        console: state.console.slice(-20),
+        runtime: state.runtime.slice(-15),
+        network: state.network.slice(-30),
       };
     },
     clear() {
@@ -202,6 +208,9 @@ pub fn collect_script(request_id: &str) -> Result<String, String> {
 
 pub fn parse_title_payload(title: &str) -> Result<Option<BrowserEvidenceSnapshot>, String> {
     let Some(json) = title.strip_prefix(BROWSER_EVIDENCE_PREFIX) else { return Ok(None); };
+    if json.len() > MAX_PAYLOAD_BYTES {
+        return Err("Browser evidence payload exceeded Monument byte bound".into());
+    }
     let snapshot = serde_json::from_str::<BrowserEvidenceSnapshot>(json).map_err(|error| format!("Invalid browser evidence payload: {error}"))?;
     if snapshot.console.len() > MAX_CONSOLE_EVENTS || snapshot.runtime.len() > MAX_RUNTIME_EVENTS || snapshot.network.len() > MAX_NETWORK_EVENTS {
         return Err("Browser evidence payload exceeded Monument event bounds".into());
@@ -211,7 +220,7 @@ pub fn parse_title_payload(title: &str) -> Result<Option<BrowserEvidenceSnapshot
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_script, parse_title_payload, BROWSER_EVIDENCE_SCRIPT, MAX_CONSOLE_EVENTS, MAX_NETWORK_EVENTS, MAX_RUNTIME_EVENTS, SLOW_REQUEST_MS};
+    use super::{collect_script, parse_title_payload, BROWSER_EVIDENCE_SCRIPT, MAX_CONSOLE_EVENTS, MAX_NETWORK_EVENTS, MAX_PAYLOAD_BYTES, MAX_RUNTIME_EVENTS, SLOW_REQUEST_MS};
 
     #[test]
     fn instrumentation_is_bounded_and_omits_sensitive_request_material() {
@@ -223,12 +232,16 @@ mod tests {
         assert!(!BROWSER_EVIDENCE_SCRIPT.contains("response.text"));
         assert!(!BROWSER_EVIDENCE_SCRIPT.contains("response.json"));
         assert!(BROWSER_EVIDENCE_SCRIPT.contains("url.pathname"));
+        assert!(BROWSER_EVIDENCE_SCRIPT.contains("Bearer [redacted]"));
+        assert!(BROWSER_EVIDENCE_SCRIPT.contains("[redacted-token]"));
+        assert!(BROWSER_EVIDENCE_SCRIPT.contains("[redacted-jwt]"));
         assert!(!BROWSER_EVIDENCE_SCRIPT.contains("url.search"));
         assert!(!BROWSER_EVIDENCE_SCRIPT.contains("url.hash"));
         assert!(MAX_CONSOLE_EVENTS <= 60);
         assert!(MAX_RUNTIME_EVENTS <= 40);
         assert!(MAX_NETWORK_EVENTS <= 80);
         assert!(SLOW_REQUEST_MS >= 1_500);
+        assert!(MAX_PAYLOAD_BYTES <= 48 * 1024);
     }
 
     #[test]
