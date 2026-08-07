@@ -1,4 +1,6 @@
 import { invokeNative, listenNative, stateGet, stateSet } from '../host/native';
+import { currentTimelineTurnSerial } from '../timeline/controller';
+import { recordTimelineBrowserQuality } from '../timeline/quality';
 
 export interface BrowserConsoleEvent {
   at: number;
@@ -90,6 +92,7 @@ export async function clearBrowserEvidenceBuffer(): Promise<void> {
 }
 
 export async function captureBrowserEvidence(projectId: string, turnSerial: number): Promise<BrowserEvidenceRecord> {
+  const resolvedTurnSerial = (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial)) ?? 0;
   let unlisten: (() => void) | null = null;
   let timeout: number | null = null;
   const snapshot = await new Promise<BrowserEvidenceSnapshot>(async (resolve, reject) => {
@@ -121,11 +124,19 @@ export async function captureBrowserEvidence(projectId: string, turnSerial: numb
   const record: BrowserEvidenceRecord = {
     projectId,
     snapshot,
-    stale: false,
-    capturedForTurnSerial: turnSerial,
+    stale: resolvedTurnSerial <= 0,
+    capturedForTurnSerial: resolvedTurnSerial,
   };
   emit(record);
   await stateSet(evidenceKey(projectId), record).catch(() => undefined);
+  if (resolvedTurnSerial > 0) {
+    await recordTimelineBrowserQuality(
+      projectId,
+      resolvedTurnSerial,
+      browserEvidenceHasIssues(record) ? 'issues' : 'clean',
+      snapshot.capturedAt,
+    ).catch(() => undefined);
+  }
   return record;
 }
 
