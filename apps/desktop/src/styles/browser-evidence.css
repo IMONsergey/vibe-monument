@@ -1,11 +1,13 @@
 .browser-evidence { margin: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.42); overflow: hidden; }
 .browser-evidence.stale { opacity: .78; }
 .browser-evidence-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
-.browser-evidence-header > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.browser-evidence-header > div:not(.browser-evidence-actions) { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .browser-evidence-header strong { font-size: 10px; }
 .browser-evidence-header span { color: var(--muted); font-size: 8.5px; line-height: 1.35; }
+.browser-evidence-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
 .browser-evidence-header button { flex: 0 0 auto; min-height: 27px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 8px; background: var(--surface); color: var(--ink); cursor: pointer; font-size: 8.5px; font-weight: 650; }
 .browser-evidence-header button:disabled { opacity: .45; cursor: default; }
+.browser-evidence-header .fix-evidence-button { border-color: rgba(166,66,54,.18); background: rgba(166,66,54,.055); color: #804239; }
 .browser-evidence-empty, .browser-evidence-stale, .browser-evidence-clean { margin: 9px; padding: 8px 9px; border-radius: 8px; font-size: 8.7px; line-height: 1.45; }
 .browser-evidence-empty { border: 1px dashed var(--line-strong); color: var(--muted); }
 .browser-evidence-stale { border: 1px solid rgba(154,103,24,.14); background: rgba(154,103,24,.05); color: #765d2b; }
