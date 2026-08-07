@@ -1,4 +1,5 @@
 import { invokeNative, stateGet, stateSet } from '../host/native';
+import { recordTimelineDeterministicQuality, type TimelineDeterministicStatus } from '../timeline/quality';
 
 export interface VerificationPlanItem {
   script: string;
@@ -108,6 +109,24 @@ async function persist(evidence: VerificationEvidence): Promise<void> {
   await stateSet(evidenceKey(evidence.projectId), evidence).catch(() => undefined);
 }
 
+function timelineStatusFor(evidence: VerificationEvidence): TimelineDeterministicStatus {
+  if (evidence.permissionRequired) return 'permission-required';
+  if (evidence.status === 'running') return 'not-run';
+  return evidence.status;
+}
+
+async function persistFinal(evidence: VerificationEvidence): Promise<void> {
+  await persist(evidence);
+  if (evidence.turnSerial > 0) {
+    await recordTimelineDeterministicQuality(
+      evidence.projectId,
+      evidence.turnSerial,
+      timelineStatusFor(evidence) === 'not-run' ? 'no-checks' : timelineStatusFor(evidence),
+      evidence.id,
+    ).catch(() => undefined);
+  }
+}
+
 export async function runVerification({
   projectId,
   projectRoot,
@@ -130,7 +149,7 @@ export async function runVerification({
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
     emit({ evidence, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 
@@ -140,7 +159,7 @@ export async function runVerification({
     evidence.status = 'no-checks';
     evidence.finishedAt = Date.now();
     emit({ evidence, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 
@@ -151,7 +170,7 @@ export async function runVerification({
     evidence.permissionRequired = true;
     evidence.finishedAt = Date.now();
     emit({ evidence, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 
@@ -168,14 +187,14 @@ export async function runVerification({
     evidence.status = evidence.results.every((result) => result.success) ? 'passed' : 'failed';
     evidence.finishedAt = Date.now();
     emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   } catch (error) {
     evidence.status = 'error';
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
     emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 }
