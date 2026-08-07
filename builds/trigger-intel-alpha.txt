@@ -1,1 +1,2 @@
 Trigger the verified Intel x86_64 Monument alpha DMG release pipeline.
+Retry: prebuilt Tauri CLI path.
