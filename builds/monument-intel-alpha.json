@@ -1,12 +1,6 @@
 {
-  "status": "published",
-  "version": "0.2.0-alpha.1",
+  "status": "failed",
+  "version": "0.2.0-alpha.2",
   "architecture": "x86_64-apple-darwin",
-  "runner": "macos-15-intel",
-  "minimum_macos": "13.0",
-  "release_url": "https://github.com/IMONsergey/vibe-monument/releases/tag/monument-v0.2.0-alpha.1-intel",
-  "asset_name": "Monument-0.2.0-alpha.1-Intel-x86_64.dmg",
-  "artifact_paths": "[\"/Users/runner/work/vibe-monument/vibe-monument/apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/Monument_0.2.0-alpha.1_x64.dmg\"]",
-  "signing": "ad-hoc",
-  "notarized": false
+  "runner": "macos-15-intel"
 }
