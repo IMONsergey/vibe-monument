@@ -14,6 +14,11 @@ const persistence = await readFile(join(root, 'src-tauri/src/persistence.rs'), '
 const systemRuntime = await readFile(join(root, 'src-tauri/src/system_runtime.rs'), 'utf8');
 const app = await readFile(join(root, 'src/App.tsx'), 'utf8');
 const entry = await readFile(join(root, 'src/main.tsx'), 'utf8');
+const approval = await readFile(join(root, 'src/components/ApprovalCard.tsx'), 'utf8');
+const diagnostics = await readFile(join(root, 'src/components/DiagnosticsPanel.tsx'), 'utf8');
+const nativePreview = await readFile(join(root, 'src/preview/NativePreview.tsx'), 'utf8');
+const selection = await readFile(join(root, 'src/preview/selection.ts'), 'utf8');
+const turnContext = await readFile(join(root, 'src/context/turn.ts'), 'utf8');
 const codexClient = await readFile(join(root, 'src/codex/client.ts'), 'utf8');
 const codexProjection = await readFile(join(root, 'src/codex/runtime.ts'), 'utf8');
 
@@ -43,12 +48,24 @@ for (const token of ['system_open_external', '/usr/bin/open', 'https://']) {
   if (!systemRuntime.includes(token)) throw new Error(`System runtime auth boundary missing ${token}`);
 }
 
-const productionSource = `${entry}\n${app}`;
+const productionSource = `${entry}\n${app}\n${approval}\n${diagnostics}\n${nativePreview}\n${selection}\n${turnContext}`;
 if (productionSource.includes('mock-data') || productionSource.includes('BrowserDemoCodexTransport')) throw new Error('Production Monument entrypoint must never depend on mock product data');
 if (!app.includes('Tell Monument what to build or change')) throw new Error('Product-first composer contract drifted');
 if (!app.includes('Under the hood')) throw new Error('Progressive disclosure developer surface is missing');
-if (!app.includes('Run checks') || !app.includes('Codex wants to run a command')) throw new Error('Protocol diagnostics/approval UX is missing');
+if (!approval.includes('Codex wants to run a command')) throw new Error('Human-facing approval UX is missing');
+if (!diagnostics.includes('Run checks')) throw new Error('Runtime diagnostics UX is missing');
 if (!app.includes('Sign in with ChatGPT') || !app.includes('auth-required')) throw new Error('Codex managed auth recovery UX is missing');
+if (!entry.includes("./styles/preview.css")) throw new Error('Native preview product styles are not loaded');
+for (const token of ['NativePreview', 'compileTurnText', 'selected-context', 'selectionLabel']) {
+  if (!app.includes(token)) throw new Error(`Select-to-Codex product flow missing ${token}`);
+}
+for (const token of ['preview_open', 'preview_set_bounds', 'preview_set_inspect', 'monument://preview-selection', "event.key.toLowerCase() !== 'i'"]) {
+  if (!nativePreview.includes(token)) throw new Error(`NativePreview integration missing ${token}`);
+}
+for (const token of ['[Monument live element context]', 'Selector:', 'Computed styles:', 'Locate the owning source/component']) {
+  if (!selection.includes(token)) throw new Error(`Live selection context compiler missing ${token}`);
+}
+if (!turnContext.includes('selectionContext(selection)')) throw new Error('Selected live context is not compiled into the next Codex turn');
 
 for (const token of ['onServerRequest', 'respond(', 'respondError(', '-32001', "input: [{ type: 'text', text }]", 'account/read', 'account/login/start']) {
   if (!codexClient.includes(token)) throw new Error(`Codex client protocol gate missing ${token}`);
@@ -61,4 +78,4 @@ for (const source of [codex, processRuntime, previewRuntime, systemRuntime]) {
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log('Monument production/native/protocol/auth/preview source contract: PASS');
+console.log('Monument production/native/protocol/auth/preview/select source contract: PASS');
