@@ -1,5 +1,7 @@
 import { invokeNative, stateGet, stateSet } from '../host/native';
 import { requestAutoRepairIfEnabled } from '../repair/controller';
+import { currentTimelineTurnSerial } from '../timeline/controller';
+import { recordTimelineDeterministicQuality, type TimelineDeterministicStatus } from '../timeline/quality';
 
 export interface VerificationPlanItem {
   script: string;
@@ -109,6 +111,26 @@ async function persist(evidence: VerificationEvidence): Promise<void> {
   await stateSet(evidenceKey(evidence.projectId), evidence).catch(() => undefined);
 }
 
+function timelineStatusFor(evidence: VerificationEvidence): TimelineDeterministicStatus {
+  if (evidence.permissionRequired) return 'permission-required';
+  if (evidence.status === 'running') return 'not-run';
+  return evidence.status;
+}
+
+async function persistFinal(evidence: VerificationEvidence): Promise<void> {
+  await persist(evidence);
+  if (evidence.turnSerial > 0) {
+    const rawStatus = timelineStatusFor(evidence);
+    const status: Exclude<TimelineDeterministicStatus, 'not-run'> = rawStatus === 'not-run' ? 'no-checks' : rawStatus;
+    await recordTimelineDeterministicQuality(
+      evidence.projectId,
+      evidence.turnSerial,
+      status,
+      evidence.id,
+    ).catch(() => undefined);
+  }
+}
+
 export async function runVerification({
   projectId,
   projectRoot,
@@ -122,26 +144,29 @@ export async function runVerification({
   includeManual?: boolean;
   turnSerial?: number;
 }): Promise<VerificationEvidence> {
+  const resolvedTurnSerial = trigger === 'manual'
+    ? (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial)) ?? 0
+    : turnSerial;
   let plan: VerificationPlanItem[] = [];
   try {
     plan = await loadVerificationPlan(projectRoot);
   } catch (error) {
-    const evidence = newEvidence(projectId, projectRoot, trigger, [], turnSerial);
+    const evidence = newEvidence(projectId, projectRoot, trigger, [], resolvedTurnSerial);
     evidence.status = 'error';
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
     emit({ evidence, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 
-  const evidence = newEvidence(projectId, projectRoot, trigger, plan, turnSerial);
+  const evidence = newEvidence(projectId, projectRoot, trigger, plan, resolvedTurnSerial);
   const selected = plan.filter((item) => includeManual || item.automatic).slice(0, 5);
   if (!selected.length) {
     evidence.status = 'no-checks';
     evidence.finishedAt = Date.now();
     emit({ evidence, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 
@@ -152,7 +177,7 @@ export async function runVerification({
     evidence.permissionRequired = true;
     evidence.finishedAt = Date.now();
     emit({ evidence, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 
@@ -169,7 +194,7 @@ export async function runVerification({
     evidence.status = evidence.results.every((result) => result.success) ? 'passed' : 'failed';
     evidence.finishedAt = Date.now();
     emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     if (evidence.status === 'failed') await requestAutoRepairIfEnabled(evidence).catch(() => false);
     return evidence;
   } catch (error) {
@@ -177,7 +202,7 @@ export async function runVerification({
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
     emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
-    await persist(evidence);
+    await persistFinal(evidence);
     return evidence;
   }
 }
