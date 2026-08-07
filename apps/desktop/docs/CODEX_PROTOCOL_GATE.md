@@ -21,7 +21,10 @@ Monument must feel simple while remaining an exact client of the installed Codex
 - `serverRequest/resolved` cleanup;
 - real command/file activity projection from item lifecycle events;
 - inline human-facing approval/question UX;
-- Diagnostics surface showing actual Codex version and schema-generation compatibility.
+- Diagnostics surface showing actual Codex version and schema-generation compatibility;
+- `account/read` projection into product state;
+- Codex-managed ChatGPT sign-in via `account/login/start`, with the auth URL opened by a bounded macOS HTTPS-only system command;
+- login/account notifications that recover the composer automatically after authentication.
 
 ## Hard rules
 
@@ -31,11 +34,13 @@ Monument must feel simple while remaining an exact client of the installed Codex
 4. A protocol mismatch must be visible in Diagnostics rather than silently reinterpreted.
 5. Generated protocol output is version-specific and is treated as the compatibility source for the installed Codex binary.
 6. Product language may simplify labels, but wire payloads remain protocol-accurate.
+7. Monument does not copy or persist ChatGPT/Codex auth tokens; authentication remains owned by Codex.
+8. External auth navigation is restricted to HTTPS and uses argv execution, never shell interpolation.
 
 ## Next protocol work
 
 - consume generated bindings in development/CI rather than only probing at runtime;
 - render supported MCP elicitation schemas;
-- add explicit auth/account state and login recovery UX;
 - expose supported model/reasoning controls only from actual app-server capabilities;
-- add deterministic fake app-server fixtures for every server-request lifecycle.
+- add deterministic fake app-server fixtures for every server-request lifecycle;
+- add explicit login cancellation/logout and auth-expiry recovery surfaces when those paths become necessary in product usage.
