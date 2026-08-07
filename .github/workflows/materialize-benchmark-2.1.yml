@@ -18,14 +18,24 @@ jobs:
           ref: vibeos-benchmark-2.1
           fetch-depth: 0
 
-      - name: Verify and extract exact VibeOS 2.1 tree
+      - name: Verify and extract exact VibeOS 2.1 delta
         shell: bash
         run: |
           set -euo pipefail
-          cat .benchmark-bootstrap/vibeos21.part* | base64 -d > /tmp/vibeos21.tar.xz
-          echo '5da7b5e6a0d1f9e2aafce065b8a44d5a97891f4e48abcca81f6d72ab83b2b193  /tmp/vibeos21.tar.xz' | sha256sum -c -
-          tar -xJf /tmp/vibeos21.tar.xz
-          rm -rf .benchmark-bootstrap
+          cat \
+            .benchmark-bootstrap-valid/part00 \
+            .benchmark-bootstrap-valid/part01 \
+            .benchmark-bootstrap-valid/part02 \
+            .benchmark-bootstrap-valid/part03 \
+            .benchmark-bootstrap-valid/part04 \
+            .benchmark-bootstrap-valid/part05 \
+            .benchmark-bootstrap-valid/correct06 \
+            .benchmark-bootstrap-valid/part07 \
+            .benchmark-bootstrap-valid/part08 \
+            | base64 -d > /tmp/vibeos21delta.tar.xz
+          echo 'fa02e0c63f83baba6749eff646054e72c942c04a6a3791f08598184dcd360ce7  /tmp/vibeos21delta.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/vibeos21delta.tar.xz
+          rm -rf .benchmark-bootstrap .benchmark-bootstrap-valid
 
       - name: Commit VibeOS 2.1 tree to benchmark branch
         shell: bash
