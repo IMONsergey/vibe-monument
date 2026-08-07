@@ -1,4 +1,5 @@
 import { invokeNative, stateGet, stateSet } from '../host/native';
+import { requestAutoRepairIfEnabled } from '../repair/controller';
 
 export interface VerificationPlanItem {
   script: string;
@@ -169,6 +170,7 @@ export async function runVerification({
     evidence.finishedAt = Date.now();
     emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
     await persist(evidence);
+    if (evidence.status === 'failed') await requestAutoRepairIfEnabled(evidence).catch(() => false);
     return evidence;
   } catch (error) {
     evidence.status = 'error';
