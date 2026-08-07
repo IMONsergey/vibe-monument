@@ -35,6 +35,22 @@ export type CodexConnectionState =
   | 'reconnecting'
   | 'error';
 
+export interface CodexRuntimeInfo {
+  running: boolean;
+  command: string;
+  pid?: number | null;
+  version?: string | null;
+}
+
+export interface CodexProtocolProbe {
+  command: string;
+  version: string | null;
+  schemaSupported: boolean;
+  generatedFiles: number;
+  schemaDirectory: string | null;
+  error: string | null;
+}
+
 export interface CodexThreadSummary {
   id: string;
   title?: string;
@@ -42,10 +58,19 @@ export interface CodexThreadSummary {
   status?: string;
 }
 
+export type ApprovalKind = 'command' | 'file-change' | 'permissions' | 'elicitation' | 'user-input' | 'unknown';
+export type SimpleApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
+
 export interface ApprovalRequest {
   id: string | number;
   method: string;
-  params: unknown;
+  kind: ApprovalKind;
+  params: Record<string, unknown>;
+  reason?: string;
+  command?: string;
+  cwd?: string;
+  changedPaths?: string[];
+  availableDecisions: SimpleApprovalDecision[];
 }
 
 export type ActivityKind = 'system' | 'thinking' | 'edit' | 'command' | 'review' | 'error';
