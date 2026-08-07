@@ -1,0 +1,31 @@
+.plan-card {
+  margin: 0 10px 7px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255,255,255,.72);
+  overflow: hidden;
+}
+.plan-card.working { border-color: rgba(90,105,150,.16); }
+.plan-card.ready { border-color: rgba(105,134,32,.18); }
+.plan-card.error { border-color: rgba(166,66,54,.18); }
+.plan-card-header { min-height: 43px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 8px 8px 10px; border-bottom: 1px solid var(--line); }
+.plan-card-header > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.plan-card-header strong { font-size: 10px; }
+.plan-card-header span { color: var(--muted); font-size: 8.2px; line-height: 1.35; }
+.plan-dismiss { width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; font-size: 16px; }
+.plan-dismiss:hover:not(:disabled) { background: rgba(24,24,22,.05); color: var(--ink); }
+.plan-goal { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.plan-goal span { color: var(--muted); font-size: 7.8px; text-transform: uppercase; letter-spacing: .04em; }
+.plan-goal strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8.8px; font-weight: 600; }
+.plan-loading, .plan-error { margin: 9px; padding: 9px; border-radius: 8px; font-size: 8.8px; line-height: 1.45; }
+.plan-loading { border: 1px dashed var(--line-strong); color: var(--muted); }
+.plan-error { border: 1px solid rgba(166,66,54,.14); background: rgba(166,66,54,.045); color: var(--danger); }
+.plan-content { max-height: 270px; overflow: auto; padding: 10px 11px; color: #3e3e39; font-size: 9px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.plan-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 9px; border-top: 1px solid var(--line); }
+.plan-actions button { min-height: 29px; border-radius: 8px; padding: 0 10px; cursor: pointer; font-size: 8.8px; font-weight: 650; }
+.plan-secondary { border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.plan-build { border: 1px solid rgba(105,134,32,.22); background: rgba(217,245,106,.4); color: #39421e; }
+.plan-actions button:disabled { opacity: .4; cursor: default; }
+.plan-mode-button { height: 28px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: transparent; color: var(--muted); cursor: pointer; font-size: 8.5px; font-weight: 620; }
+.plan-mode-button.active { border-color: rgba(90,105,150,.2); background: rgba(90,105,150,.07); color: #495478; }
+.plan-mode-button:disabled { opacity: .35; cursor: default; }
