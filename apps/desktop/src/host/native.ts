@@ -110,15 +110,15 @@ export async function timelineRestore(
   projectId: string,
   checkpointId: string,
 ): Promise<TimelineRestoreResult> {
-  return invokeNative<TimelineRestoreResult>('timeline_restore', { projectPath, projectId, checkpointId });
+  return invokeNative<TimelineRestoreResult>('timeline_restore_safe', { projectPath, projectId, checkpointId });
 }
 
 export async function timelineBack(projectPath: string, projectId: string): Promise<TimelineRestoreResult> {
-  return invokeNative<TimelineRestoreResult>('timeline_back', { projectPath, projectId });
+  return invokeNative<TimelineRestoreResult>('timeline_back_safe', { projectPath, projectId });
 }
 
 export async function timelineForward(projectPath: string, projectId: string): Promise<TimelineRestoreResult> {
-  return invokeNative<TimelineRestoreResult>('timeline_forward', { projectPath, projectId });
+  return invokeNative<TimelineRestoreResult>('timeline_forward_safe', { projectPath, projectId });
 }
 
 export async function timelineSetActivePath(projectId: string, pathId: string): Promise<void> {
