@@ -24,8 +24,18 @@ function compactPrompt(value: string, limit = 120): string {
   return compact.length <= limit ? compact : `${compact.slice(0, Math.max(0, limit - 1))}…`;
 }
 
+export function timelineProjectId(project: Pick<ProjectInspection, 'rootPath'>): string {
+  const bytes = new TextEncoder().encode(project.rootPath.normalize('NFC'));
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of bytes) {
+    hash ^= BigInt(byte);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return `timeline-${hash.toString(16).padStart(16, '0')}`;
+}
+
 export async function prepareTimeline(project: ProjectInspection): Promise<TimelineState> {
-  return timelineInit(project.rootPath, project.id);
+  return timelineInit(project.rootPath, timelineProjectId(project));
 }
 
 export function rememberTimelinePrompt(projectId: string, userPrompt: string): void {
@@ -48,7 +58,7 @@ export async function checkpointCompletedTurn({
   turnSerial: number;
 }): Promise<TimelineCheckpoint> {
   const prompt = pendingPrompts.get(project.id) ?? '';
-  const checkpoint = await timelineSnapshot(project.rootPath, project.id, {
+  const checkpoint = await timelineSnapshot(project.rootPath, timelineProjectId(project), {
     kind: 'prompt',
     title: compactPrompt(prompt, 76) || `Version ${turnSerial}`,
     promptExcerpt: compactPrompt(prompt, 240) || null,
@@ -64,7 +74,7 @@ export async function saveTimelineVersion(
   project: ProjectInspection,
   title = 'Saved version',
 ): Promise<TimelineCheckpoint> {
-  return timelineSnapshot(project.rootPath, project.id, {
+  return timelineSnapshot(project.rootPath, timelineProjectId(project), {
     kind: 'manual',
     title: compactPrompt(title, 76) || 'Saved version',
     turnSerial: null,
@@ -72,22 +82,23 @@ export async function saveTimelineVersion(
 }
 
 export async function readTimelineStatus(project: ProjectInspection): Promise<TimelineStatus> {
-  return timelineStatus(project.rootPath, project.id);
+  return timelineStatus(project.rootPath, timelineProjectId(project));
 }
 
 export async function restoreTimelineVersion(
   project: ProjectInspection,
   checkpointId: string,
 ): Promise<TimelineRestoreResult> {
-  return timelineRestore(project.rootPath, project.id, checkpointId);
+  return timelineRestore(project.rootPath, timelineProjectId(project), checkpointId);
 }
 
 export async function backTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
-  const before = await timelineStatus(project.rootPath, project.id);
+  const projectId = timelineProjectId(project);
+  const before = await timelineStatus(project.rootPath, projectId);
   const activePathId = before.activePathId;
-  const result = await timelineBack(project.rootPath, project.id);
+  const result = await timelineBack(project.rootPath, projectId);
   if (activePathId && result.state.activePathId !== activePathId) {
-    await timelineSetActivePath(project.id, activePathId);
+    await timelineSetActivePath(projectId, activePathId);
     const next = result.state.checkpoints
       .filter((checkpoint) => checkpoint.parentId === result.target.id && checkpoint.pathId === activePathId)
       .sort((left, right) => left.sequence - right.sequence)[0] ?? null;
@@ -101,7 +112,7 @@ export async function backTimeline(project: ProjectInspection): Promise<Timeline
 }
 
 export async function forwardTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
-  return timelineForward(project.rootPath, project.id);
+  return timelineForward(project.rootPath, timelineProjectId(project));
 }
 
 export async function compareTimelineVersions(
@@ -109,5 +120,10 @@ export async function compareTimelineVersions(
   fromCheckpointId: string,
   toCheckpointId: string,
 ): Promise<TimelineDiff> {
-  return timelineDiff(project.rootPath, project.id, fromCheckpointId, toCheckpointId);
+  return timelineDiff(
+    project.rootPath,
+    timelineProjectId(project),
+    fromCheckpointId,
+    toCheckpointId,
+  );
 }
