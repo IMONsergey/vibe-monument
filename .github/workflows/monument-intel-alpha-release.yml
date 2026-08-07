@@ -24,6 +24,9 @@ jobs:
         working-directory: apps/desktop
     env:
       APPLE_SIGNING_IDENTITY: '-'
+      MONUMENT_VERSION: '0.2.0-alpha.3'
+      RELEASE_TAG: 'monument-v0.2.0-alpha.3-intel'
+      RELEASE_ASSET: 'Monument-0.2.0-alpha.3-Intel-x86_64.dmg'
     steps:
       - uses: actions/checkout@v4
 
@@ -42,86 +45,107 @@ jobs:
 
       - name: Validate production contracts
         run: |
+          echo validate > /tmp/monument-release-stage
           npm run check
           npm test
           npm run build
           cd src-tauri
           cargo test --all-targets
 
-      - name: Install prebuilt Tauri CLI
+      - name: Install Tauri CLI
         run: npm install --no-save @tauri-apps/cli@latest
 
       - name: Generate complete macOS icon set
         run: npx tauri icon src-tauri/icons/icon.png
 
-      - name: Build and publish Intel DMG
-        id: publish
-        uses: tauri-apps/tauri-action@v1
+      - name: Build Intel DMG explicitly
+        run: |
+          echo build > /tmp/monument-release-stage
+          npx tauri build --target x86_64-apple-darwin --bundles dmg
+          DMG="$(find src-tauri/target/x86_64-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print | head -n 1)"
+          test -n "$DMG"
+          cp "$DMG" "$GITHUB_WORKSPACE/$RELEASE_ASSET"
+          shasum -a 256 "$GITHUB_WORKSPACE/$RELEASE_ASSET" > "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256"
+          test -s "$GITHUB_WORKSPACE/$RELEASE_ASSET"
+
+      - name: Smoke-test packaged Intel application
+        run: |
+          echo smoke > /tmp/monument-release-stage
+          ASSET="$GITHUB_WORKSPACE/$RELEASE_ASSET"
+          MOUNT="/tmp/monument-dmg-$GITHUB_RUN_ID"
+          mkdir -p "$MOUNT"
+          cleanup() { hdiutil detach "$MOUNT" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          hdiutil attach "$ASSET" -nobrowse -readonly -mountpoint "$MOUNT"
+          APP="$(find "$MOUNT" -maxdepth 1 -type d -name '*.app' -print | head -n 1)"
+          test -n "$APP"
+          EXECUTABLE="$(find "$APP/Contents/MacOS" -maxdepth 1 -type f -print | head -n 1)"
+          test -n "$EXECUTABLE"
+          file "$EXECUTABLE"
+          ARCHS="$(lipo -archs "$EXECUTABLE")"
+          echo "Architectures: $ARCHS"
+          echo "$ARCHS" | tr ' ' '\n' | grep -qx 'x86_64'
+          codesign --verify --deep "$APP"
+          plutil -lint "$APP/Contents/Info.plist"
+
+      - name: Publish GitHub prerelease
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: '-'
-        with:
-          projectPath: apps/desktop
-          tauriScript: npx tauri
-          tagName: monument-v0.2.0-alpha.2-intel
-          releaseName: 'Monument 0.2.0 Alpha 2 — Protocol Gate — Intel Mac'
-          releaseBody: |
-            Product-first Monument alpha with the Codex protocol safety gate closed.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo publish > /tmp/monument-release-stage
+          cat > /tmp/monument-release-notes.md <<'EOF'
+          Monument 0.2.0 Alpha 3 — Select / Inspect — Intel Mac
 
-            Included:
-            - real local project inspection and managed live preview runtime
-            - real Codex task/thread projection and streaming turns
-            - current Codex turn input contract
-            - command, file-change and granular permission approvals
-            - inline Codex questions / request_user_input
-            - active turn interruption
-            - bounded retry for app-server saturation
-            - Codex-managed ChatGPT sign-in recovery
-            - actual Codex binary/version diagnostics
-            - installed-binary protocol schema generation/compatibility probe
-            - local SQLite state and progressive-disclosure engineering surfaces
-            - CI invariants preventing production mocks and protocol regressions
+          Product-first alpha for Intel Macs.
 
-            Requirements:
-            - Intel Mac (x86_64, including Core i9)
-            - macOS 13 or newer
-            - OpenAI Codex CLI installed
+          Included:
+          - real local project inspection and managed dev runtime;
+          - real Codex threads, streaming turns, interrupt, approvals and inline questions;
+          - Codex-managed ChatGPT sign-in and protocol diagnostics;
+          - native child WKWebView live preview;
+          - Select mode (`I`) with hover outline and live DOM element capture;
+          - selected element context automatically attached to the next Codex turn;
+          - deterministic source hints ranked from the actual repository;
+          - desktop/mobile preview geometry;
+          - local SQLite restoration and progressive-disclosure developer tools.
 
-            Next major product gate:
-            - direct Select/Inspect on the live preview
-            - source/context attachment to Codex
-            - deterministic browser/evidence/review/repair gates
+          Requirements:
+          - Intel Mac (x86_64, including Core i9);
+          - macOS 13 or newer;
+          - OpenAI Codex CLI installed.
 
-            This alpha uses ad-hoc signing and is not notarized yet. macOS may require allowing Monument in System Settings → Privacy & Security on first launch.
-          releaseCommitish: main
-          prerelease: true
-          releaseDraft: false
-          uploadUpdaterJson: false
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: 'Monument-Intel-x86_64-DMG'
-          releaseAssetNamePattern: 'Monument-[version]-Intel-x86_64.[ext]'
-          args: '--target x86_64-apple-darwin --bundles dmg'
+          This alpha is ad-hoc signed and not notarized yet. macOS may require allowing Monument in System Settings → Privacy & Security on first launch.
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --title 'Monument 0.2.0 Alpha 3 — Select / Inspect — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --target "$GITHUB_SHA" --title 'Monument 0.2.0 Alpha 3 — Select / Inspect — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url > /tmp/monument-release-url
 
       - name: Prepare successful release marker
         if: success()
-        env:
-          RELEASE_URL: ${{ steps.publish.outputs.releaseHtmlUrl }}
-          ARTIFACT_PATHS: ${{ steps.publish.outputs.artifactPaths }}
         run: |
           python3 - <<'PY'
-          import json, os
+          import hashlib, json, os
           from pathlib import Path
+          asset = Path(os.environ['GITHUB_WORKSPACE']) / os.environ['RELEASE_ASSET']
+          digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+          release_url = Path('/tmp/monument-release-url').read_text().strip()
           Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
               'status': 'published',
-              'version': '0.2.0-alpha.2',
+              'version': os.environ['MONUMENT_VERSION'],
               'architecture': 'x86_64-apple-darwin',
               'runner': 'macos-15-intel',
               'minimum_macos': '13.0',
-              'release_url': os.environ.get('RELEASE_URL', ''),
-              'asset_name': 'Monument-0.2.0-alpha.2-Intel-x86_64.dmg',
-              'artifact_paths': os.environ.get('ARTIFACT_PATHS', ''),
+              'release_url': release_url,
+              'asset_name': os.environ['RELEASE_ASSET'],
+              'sha256': digest,
               'signing': 'ad-hoc',
-              'notarized': False
+              'notarized': False,
+              'verified_dmg_mount': True,
+              'verified_binary_architecture': 'x86_64'
           }, indent=2) + '\n')
           PY
 
@@ -129,13 +153,16 @@ jobs:
         if: failure()
         run: |
           python3 - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
+          stage_file = Path('/tmp/monument-release-stage')
+          stage = stage_file.read_text().strip() if stage_file.exists() else 'setup'
           Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
               'status': 'failed',
-              'version': '0.2.0-alpha.2',
+              'version': os.environ['MONUMENT_VERSION'],
               'architecture': 'x86_64-apple-darwin',
-              'runner': 'macos-15-intel'
+              'runner': 'macos-15-intel',
+              'failed_stage': stage
           }, indent=2) + '\n')
           PY
 
