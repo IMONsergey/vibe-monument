@@ -10,6 +10,9 @@ mod timeline_cursor;
 mod timeline_runtime;
 mod verification_runtime;
 
+#[cfg(test)]
+mod timeline_git_contract_tests;
+
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use persistence::{state_get, state_set};
 use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_collect_browser_evidence, preview_install_browser_evidence, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
