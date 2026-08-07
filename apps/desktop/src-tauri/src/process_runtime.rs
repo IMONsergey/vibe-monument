@@ -184,3 +184,29 @@ pub fn runtime_stop(state: State<'_, Mutex<ProcessRuntime>>) -> Result<(), Strin
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::extract_url;
+
+    #[test]
+    fn extracts_vite_localhost_url() {
+        assert_eq!(
+            extract_url("  ➜  Local:   http://localhost:5173/"),
+            Some("http://localhost:5173".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_loopback_url_without_swallowing_suffix() {
+        assert_eq!(
+            extract_url("ready at http://127.0.0.1:3000 (press q to quit)"),
+            Some("http://127.0.0.1:3000".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_non_local_urls() {
+        assert_eq!(extract_url("docs: https://example.com:443"), None);
+    }
+}
