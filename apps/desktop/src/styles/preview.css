@@ -5,7 +5,10 @@
   min-height: 0;
   display: grid;
   grid-template-rows: 34px minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 10px;
   background: #fff;
+  box-shadow: var(--shadow);
 }
 
 .preview-local-toolbar {
@@ -33,28 +36,9 @@
   font-size: 9.5px;
   font-weight: 620;
 }
-
-.preview-local-toolbar > button.active {
-  border-color: rgba(24,24,22,.28);
-  background: #1b1b19;
-  color: white;
-}
-
-.preview-local-toolbar kbd {
-  padding: 1px 4px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  opacity: .56;
-  font: 8px/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-}
-
-.preview-helper {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 9.5px;
-}
+.preview-local-toolbar > button.active { border-color: rgba(24,24,22,.28); background: #1b1b19; color: white; }
+.preview-local-toolbar kbd { padding: 1px 4px; border: 1px solid currentColor; border-radius: 4px; opacity: .56; font: 8px/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
+.preview-helper { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 9.5px; }
 
 .selected-element-chip {
   min-width: 0;
@@ -73,13 +57,10 @@
 .selected-element-chip > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; font-weight: 620; }
 .selected-element-chip > button { flex: 0 0 auto; width: 18px; height: 18px; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
 
-.native-preview-host {
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  background: #fff;
-}
+.native-preview-host { width: 100%; height: 100%; min-width: 0; min-height: 0; background: #fff; }
+
+.preview-shell.desktop .native-preview-wrap { width: min(100%, 1440px); height: 100%; }
+.preview-shell.mobile .native-preview-wrap { width: 390px; max-width: 100%; height: min(844px, 100%); border-radius: 18px; }
 
 .context-chip.selected-context {
   max-width: 270px;
@@ -88,22 +69,7 @@
   background: rgba(217,245,106,.14);
   color: #485522;
 }
-.context-chip.selected-context button {
-  width: 16px;
-  height: 16px;
-  margin-left: 1px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.preview-shell.mobile .native-preview-wrap {
-  border-radius: inherit;
-  overflow: hidden;
-}
+.context-chip.selected-context button { width: 16px; height: 16px; margin-left: 1px; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; line-height: 1; }
 
 @media (max-width: 1160px) {
   .selected-element-chip { max-width: 58%; }
