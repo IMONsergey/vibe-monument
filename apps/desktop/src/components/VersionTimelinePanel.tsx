@@ -47,12 +47,19 @@ export function VersionTimelinePanel({
   onCompare: (checkpointId: string) => void;
 }) {
   const checkpoints = state?.checkpoints ?? [];
+  const byId = new Map(checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]));
   const childCounts = new Map<string, number>();
   for (const checkpoint of checkpoints) {
     if (!checkpoint.parentId) continue;
     childCounts.set(checkpoint.parentId, (childCounts.get(checkpoint.parentId) ?? 0) + 1);
   }
   const current = checkpoints.find((checkpoint) => checkpoint.id === state?.currentCheckpointId) ?? null;
+  const currentLineage = new Set<string>();
+  let cursor = current;
+  while (cursor && !currentLineage.has(cursor.id)) {
+    currentLineage.add(cursor.id);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) ?? null : null;
+  }
 
   return (
     <aside className="timeline-panel">
@@ -79,7 +86,7 @@ export function VersionTimelinePanel({
       <div className="timeline-list">
         {[...checkpoints].reverse().map((checkpoint) => {
           const isCurrent = checkpoint.id === state?.currentCheckpointId;
-          const alternative = checkpoint.pathId !== state?.activePathId;
+          const alternative = !currentLineage.has(checkpoint.id) && checkpoint.pathId !== state?.activePathId;
           const forked = (childCounts.get(checkpoint.id) ?? 0) > 1;
           return (
             <article className={`timeline-card ${isCurrent ? 'current' : ''} ${alternative ? 'alternative' : ''}`} key={checkpoint.id}>
