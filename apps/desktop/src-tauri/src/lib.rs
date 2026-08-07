@@ -1,9 +1,11 @@
 mod codex_runtime;
 mod persistence;
+mod process_runtime;
 mod project_runtime;
 
 use codex_runtime::{codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use persistence::{state_get, state_set};
+use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
 use std::sync::Mutex;
 
@@ -11,6 +13,7 @@ use std::sync::Mutex;
 pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(CodexRuntime::default()))
+        .manage(Mutex::new(ProcessRuntime::default()))
         .invoke_handler(tauri::generate_handler![
             codex_start,
             codex_send,
@@ -18,6 +21,9 @@ pub fn run() {
             codex_stop,
             project_open,
             project_inspect,
+            runtime_start,
+            runtime_status,
+            runtime_stop,
             state_get,
             state_set
         ])
