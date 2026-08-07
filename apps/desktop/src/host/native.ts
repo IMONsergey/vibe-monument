@@ -73,6 +73,10 @@ export async function probeCodexProtocol(): Promise<CodexProtocolProbe> {
   return invokeNative<CodexProtocolProbe>('codex_protocol_probe');
 }
 
+export async function openExternalUrl(url: string): Promise<void> {
+  await invokeNative<void>('system_open_external', { url });
+}
+
 export async function stateGet<T>(key: string): Promise<T | null> {
   return invokeNative<T | null>('state_get', { key });
 }
