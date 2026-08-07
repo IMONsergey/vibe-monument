@@ -369,6 +369,7 @@ fn collect_snapshot_files(project_root: &Path) -> Result<Vec<String>, String> {
         .git_global(false)
         .git_exclude(true)
         .parents(true)
+        .require_git(false)
         .filter_entry(move |entry| {
             if entry.path() == root_for_filter {
                 return true;
@@ -1057,9 +1058,10 @@ pub fn timeline_back(
 ) -> Result<TimelineRestoreResult, String> {
     let _guard = with_runtime_lock(&state)?;
     init_internal(&app, &project_path, &project_id)?;
+    let project_root = canonical_project(&project_path)?;
     let connection = persistence::connection(&app)?;
     ensure_schema(&connection)?;
-    let cursor = ensure_project_record(&connection, &project_id, &canonical_project(&project_path)?)?;
+    let cursor = ensure_project_record(&connection, &project_id, &project_root)?;
     let current_id = cursor
         .current_checkpoint_id
         .ok_or_else(|| "Timeline current checkpoint is missing".to_string())?;
@@ -1151,10 +1153,10 @@ pub fn timeline_diff(
 mod tests {
     use super::{
         collect_snapshot_files, ensure_shadow_repository, restore_tree, secret_environment_file,
-        shadow_paths_for_test, working_tree_sha,
+        working_tree_sha,
     };
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     fn temporary_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
@@ -1195,7 +1197,7 @@ mod tests {
     }
 
     #[test]
-    fn shadow_snapshot_and_restore_do_not_require_user_git_index() {
+    fn shadow_snapshot_and_restore_preserve_excluded_secrets() {
         let Ok(git) = super::resolve_git() else { return; };
         let root = temporary_root("restore");
         let shadow_root = root.join("shadow");
@@ -1203,7 +1205,7 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(project.join("page.txt"), "version one\n").unwrap();
         fs::write(project.join(".env"), "SECRET=keep\n").unwrap();
-        let shadow = shadow_paths_for_test(&shadow_root);
+        let shadow = super::shadow_paths_for_test(&shadow_root);
         ensure_shadow_repository(&git, &shadow).unwrap();
         let tree_one = working_tree_sha(&git, &shadow, &project).unwrap();
         let commit_one = super::create_shadow_commit(
@@ -1236,10 +1238,6 @@ mod tests {
         assert!(!project.join("new.txt").exists());
         assert_eq!(fs::read_to_string(project.join(".env")).unwrap(), "SECRET=keep\n");
         let _ = fs::remove_dir_all(root);
-    }
-
-    fn _path_is_inside(root: &Path, path: &Path) -> bool {
-        path.starts_with(root)
     }
 }
 
