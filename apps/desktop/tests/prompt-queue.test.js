@@ -48,7 +48,7 @@ test('Prompt Queue waits for post-turn work, captures visual context and remains
     'activeProjectIdRef.current !== projectId',
     'detachPromptQueueThreads(project.id)',
     'queueBlockedByEvidence',
-    'Continue anyway',
+    'setQueueFailureOverride(currentCodeTurnSerial)',
   ]) {
     assert.ok(app.includes(token), `Prompt Queue orchestration missing ${token}`);
   }
