@@ -6,6 +6,7 @@ export interface QueuedPrompt {
   projectId: string;
   text: string;
   selection: PreviewSelection | null;
+  threadId: string | null;
   createdAt: number;
 }
 
@@ -41,6 +42,7 @@ function normalize(projectId: string, value: PromptQueueState | null): PromptQue
       projectId,
       text,
       selection: item.selection ?? null,
+      threadId: typeof item.threadId === 'string' ? item.threadId : null,
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
     }];
   });
@@ -88,6 +90,7 @@ export async function enqueuePrompt(
   projectId: string,
   text: string,
   selection: PreviewSelection | null,
+  threadId: string | null,
 ): Promise<PromptQueueState> {
   const normalizedText = text.trim().slice(0, MAX_PROMPT_CHARS);
   if (!normalizedText) return states.get(projectId) ?? empty(projectId);
@@ -98,6 +101,7 @@ export async function enqueuePrompt(
       projectId,
       text: normalizedText,
       selection,
+      threadId,
       createdAt: Date.now(),
     };
     return { ...current, items: [...current.items, item] };
@@ -122,6 +126,14 @@ export async function moveQueuedPrompt(projectId: string, itemId: string, direct
 
 export async function setPromptQueuePaused(projectId: string, paused: boolean): Promise<PromptQueueState> {
   return mutate(projectId, (current) => ({ ...current, paused }));
+}
+
+export async function detachPromptQueueThreads(projectId: string): Promise<PromptQueueState> {
+  return mutate(projectId, (current) => ({
+    ...current,
+    paused: current.items.length ? true : current.paused,
+    items: current.items.map((item) => ({ ...item, threadId: null })),
+  }));
 }
 
 export async function takeNextPrompt(projectId: string): Promise<{ item: QueuedPrompt | null; state: PromptQueueState }> {
