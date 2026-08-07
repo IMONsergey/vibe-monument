@@ -1,0 +1,205 @@
+name: Monument Codex Plan UI Bootstrap
+
+on:
+  push:
+    branches: [feature/codex-plan-review-v3]
+    paths:
+      - '.github/workflows/monument-plan-ui-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/codex-plan-review-v3
+
+      - name: Wire Plan Card and one-shot Plan first mode
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          app_path = Path('apps/desktop/src/App.tsx')
+          text = app_path.read_text()
+
+          def once(old, new, label):
+              global text
+              if old not in text:
+                  raise SystemExit(f'missing Plan UI anchor: {label}')
+              text = text.replace(old, new, 1)
+
+          if "./components/PlanCard" not in text:
+              once(
+                  "import { FileTree } from './components/FileTree';\n",
+                  "import { FileTree } from './components/FileTree';\nimport { PlanCard } from './components/PlanCard';\n",
+                  'PlanCard import',
+              )
+
+          if "./codex/plan" not in text:
+              once(
+                  "import { CodexRuntime } from './codex/runtime';\n",
+                  "import { CodexRuntime } from './codex/runtime';\nimport { clearCodexPlan, requestCodexPlan, subscribeCodexPlan, type CodexPlanState } from './codex/plan';\n",
+                  'Plan controller import',
+              )
+
+          if 'const [planFirst, setPlanFirst]' not in text:
+              once(
+                  "  const [queueFailureOverride, setQueueFailureOverride] = useState<number | null>(null);\n",
+                  "  const [queueFailureOverride, setQueueFailureOverride] = useState<number | null>(null);\n  const [planFirst, setPlanFirst] = useState(false);\n  const [planState, setPlanState] = useState<CodexPlanState>({ status: 'idle', userText: '', text: '', threadId: null, turnId: null, error: null });\n  const [plannedSelection, setPlannedSelection] = useState<PreviewSelection | null>(null);\n",
+                  'Plan UI state',
+              )
+
+          if 'subscribeCodexPlan(setPlanState)' not in text:
+              once(
+                  "  useEffect(() => subscribeBrowserEvidence(setBrowserEvidence), []);\n",
+                  "  useEffect(() => subscribeBrowserEvidence(setBrowserEvidence), []);\n  useEffect(() => subscribeCodexPlan(setPlanState), []);\n",
+                  'Plan subscription',
+              )
+
+          if 'setPlanFirst(false);' not in text[text.find('const applyProject'):text.find('useEffect(() => codex.subscribe')]:
+              once(
+                  "    setQueueFailureOverride(null);\n    setWorkspace((current)",
+                  "    setQueueFailureOverride(null);\n    setPlanFirst(false);\n    setPlannedSelection(null);\n    clearCodexPlan();\n    setWorkspace((current)",
+                  'clear Plan on project switch',
+              )
+
+          if 'const executePlan = useCallback' not in text:
+              anchor = "  const submitPrompt = useCallback(async () => {"
+              method = '''  const executePlan = useCallback(async (
+    text: string,
+    capturedSelection: PreviewSelection | null,
+  ): Promise<boolean> => {
+    if (!project || !canExecutePromptNow || planState.status === 'working') return false;
+    setSending(true);
+    setNotice(null);
+    try {
+      const compiledText = await compileTurnText(text, project.rootPath, capturedSelection);
+      setPlannedSelection(capturedSelection);
+      if (!requestCodexPlan({ projectRoot: project.rootPath, userText: text, compiledText })) {
+        throw new Error('Plan mode is unavailable outside the Monument desktop runtime');
+      }
+      clearSelection();
+      return true;
+    } catch (error) {
+      setPlannedSelection(null);
+      setNotice(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setSending(false);
+    }
+  }, [canExecutePromptNow, clearSelection, planState.status, project]);
+
+  const buildApprovedPlan = useCallback(async () => {
+    if (!project || planState.status !== 'ready' || !planState.userText.trim() || !canExecutePromptNow) return;
+    if (planState.threadId) codex.selectThread(planState.threadId);
+    const buildText = `${planState.userText}\n\nImplement the Plan you just produced. Treat that Plan as the implementation contract, re-check the current repository state before editing, and preserve unrelated work.`;
+    clearCodexPlan();
+    setPlanFirst(false);
+    const selection = plannedSelection;
+    setPlannedSelection(null);
+    await executePrompt(buildText, selection, true);
+  }, [canExecutePromptNow, codex, executePrompt, planState, plannedSelection, project]);
+
+  const dismissPlan = useCallback(() => {
+    clearCodexPlan();
+    setPlannedSelection(null);
+    setPlanFirst(false);
+  }, []);
+
+'''
+              once(anchor, method + anchor, 'Plan actions')
+
+          old_submit = '''    const capturedSelection = getPreviewSelection();
+    const hasPendingQueue = Boolean(promptQueueState?.items.length || queueDispatching);
+    const shouldQueue = !canExecutePromptNow || hasPendingQueue;
+    if (shouldQueue) {'''
+          if old_submit in text:
+              new_submit = '''    const capturedSelection = getPreviewSelection();
+    const hasPendingQueue = Boolean(promptQueueState?.items.length || queueDispatching);
+    const shouldQueue = !canExecutePromptNow || hasPendingQueue;
+    const shouldPlanNow = planFirst && canExecutePromptNow && !hasPendingQueue;
+    if (shouldPlanNow) {
+      setPrompt('');
+      setPlanFirst(false);
+      if (!(await executePlan(text, capturedSelection))) setPrompt(text);
+      return;
+    }
+    if (shouldQueue) {'''
+              text = text.replace(old_submit, new_submit, 1)
+          elif 'shouldPlanNow' not in text:
+              raise SystemExit('submitPrompt Plan routing anchor missing')
+
+          old_submit_deps = "  }, [canExecutePromptNow, clearSelection, executePrompt, project, prompt, promptQueueState?.items.length, queueDispatching, workspace.activeThreadId, workspace.codexState]);"
+          if old_submit_deps in text:
+              text = text.replace(old_submit_deps, "  }, [canExecutePromptNow, clearSelection, executePlan, executePrompt, planFirst, project, prompt, promptQueueState?.items.length, queueDispatching, workspace.activeThreadId, workspace.codexState]);", 1)
+
+          if 'clearCodexPlan();\n    setPlanFirst(false);' not in text[text.find('const startNewTask'):text.find('const selectTask')]:
+              once(
+                  "  const startNewTask = useCallback(() => {\n    codex.newTask();\n",
+                  "  const startNewTask = useCallback(() => {\n    clearCodexPlan();\n    setPlanFirst(false);\n    setPlannedSelection(null);\n    codex.newTask();\n",
+                  'clear Plan on New Task',
+              )
+
+          if 'clearCodexPlan();\n    setPlanFirst(false);' not in text[text.find('const selectTask'):text.find('const resolveApproval')]:
+              once(
+                  "  const selectTask = useCallback((threadId: string) => {\n    codex.selectThread(threadId);\n",
+                  "  const selectTask = useCallback((threadId: string) => {\n    clearCodexPlan();\n    setPlanFirst(false);\n    setPlannedSelection(null);\n    codex.selectThread(threadId);\n",
+                  'clear Plan on task switch',
+              )
+
+          if 'clearCodexPlan();\n    setPlanFirst(false);' not in text[text.find('const applyTimelineRestore'):text.find('const restoreVersion')]:
+              once(
+                  "    clearSelection();\n    setQueueFailureOverride(null);\n",
+                  "    clearSelection();\n    clearCodexPlan();\n    setPlanFirst(false);\n    setPlannedSelection(null);\n    setQueueFailureOverride(null);\n",
+                  'clear Plan on Timeline restore',
+              )
+
+          if '<PlanCard' not in text:
+              once(
+                  "            <PromptQueue\n",
+                  "            <PlanCard state={planState} busy={sending || timelineBusy || verificationBusy || workspace.codexState === 'busy' || workspace.codexState === 'approval'} onBuild={() => void buildApprovedPlan()} onDismiss={dismissPlan} />\n            <PromptQueue\n",
+                  'Plan Card placement',
+              )
+
+          if 'className={`plan-mode-button' not in text:
+              once(
+                  "                <div className=\"composer-actions\">\n",
+                  "                <div className=\"composer-actions\">\n                  <button type=\"button\" className={`plan-mode-button ${planFirst ? 'active' : ''}`} disabled={!project || workspace.codexState !== 'ready' || sending || queueDispatching || (promptQueueState?.items.length ?? 0) > 0 || planState.status === 'working'} onClick={() => setPlanFirst((value) => !value)}>{planFirst ? 'Plan first ✓' : 'Plan first'}</button>\n",
+                  'Plan first control',
+              )
+
+          app_path.write_text(text)
+
+          main_path = Path('apps/desktop/src/main.tsx')
+          main = main_path.read_text()
+          if "./styles/plan.css" not in main:
+              anchor = "import './styles/queue.css';\n"
+              if anchor not in main:
+                  raise SystemExit('queue.css import anchor missing')
+              main = main.replace(anchor, anchor + "import './styles/plan.css';\n", 1)
+          main_path.write_text(main)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate Plan product flow
+        working-directory: apps/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+          npm run build
+
+      - name: Commit Plan UI and remove bootstrap workflow
+        run: |
+          git rm -f .github/workflows/monument-plan-ui-bootstrap.yml
+          git add apps/desktop/src/App.tsx apps/desktop/src/main.tsx
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: add one-shot Plan first product flow'
+          git push origin HEAD:feature/codex-plan-review-v3
