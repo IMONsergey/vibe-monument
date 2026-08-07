@@ -61,6 +61,20 @@ export interface CodexThreadSummary {
 export type ApprovalKind = 'command' | 'file-change' | 'permissions' | 'elicitation' | 'user-input' | 'unknown';
 export type SimpleApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
 
+export interface UserInputQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface UserInputQuestion {
+  id: string;
+  header?: string;
+  question: string;
+  isOther?: boolean;
+  isSecret?: boolean;
+  options?: UserInputQuestionOption[];
+}
+
 export interface ApprovalRequest {
   id: string | number;
   method: string;
@@ -71,6 +85,8 @@ export interface ApprovalRequest {
   cwd?: string;
   changedPaths?: string[];
   availableDecisions: SimpleApprovalDecision[];
+  questions?: UserInputQuestion[];
+  isBlocking?: boolean;
 }
 
 export type ActivityKind = 'system' | 'thinking' | 'edit' | 'command' | 'review' | 'error';
