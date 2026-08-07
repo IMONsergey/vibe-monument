@@ -1,0 +1,160 @@
+name: Monument Codex Plan Gate Finalize
+
+on:
+  push:
+    branches: [feature/codex-plan-review-v3]
+    paths:
+      - '.github/workflows/monument-plan-gate-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/codex-plan-review-v3
+
+      - name: Ensure prepared Plan UI is applied
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, textwrap
+          app = Path('apps/desktop/src/App.tsx').read_text()
+          if all(token in app for token in ['PlanCard', 'subscribeCodexPlan', 'executePlan', 'shouldPlanNow', 'buildApprovedPlan']):
+              print('Plan UI already present')
+          else:
+              workflow = Path('.github/workflows/monument-plan-ui-bootstrap.yml')
+              if not workflow.exists():
+                  raise SystemExit('Plan UI is missing and its prepared bootstrap workflow is unavailable')
+              raw = workflow.read_text()
+              match = re.search(r"python3 - <<'PY'\n(.*?)\n\s+PY(?:\n|$)", raw, re.S)
+              if not match:
+                  raise SystemExit('Could not extract prepared Plan UI patch')
+              exec(compile(textwrap.dedent(match.group(1)), str(workflow), 'exec'), {'__name__': '__main__'})
+          PY
+
+      - name: Close Plan request readiness race
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/desktop/src/codex/runtime.ts')
+          text = path.read_text()
+          marker = "  private async startPlan(request: CodexPlanRequest): Promise<void> {"
+          start = text.find(marker)
+          if start < 0:
+              raise SystemExit('startPlan is missing')
+          end = text.find("\n  private readonly handleTimelineRestore", start)
+          if end < 0:
+              raise SystemExit('startPlan end anchor is missing')
+          section = text[start:end]
+          wanted = "    this.patch({ state: 'busy', message: '', approval: null });\n    publishCodexPlanState({ status: 'working', userText: request.userText, text: '', threadId: this.snapshot.activeThreadId, turnId: null, error: null });\n"
+          first_await = section.find('await ')
+          busy = section.find("this.patch({ state: 'busy'")
+          if busy < 0 or (first_await >= 0 and busy > first_await):
+              guard = "    if (this.snapshot.account && !this.snapshot.account.readyForTurns) {\n      publishCodexPlanState({ status: 'error', userText: request.userText, text: '', threadId: this.snapshot.activeThreadId, turnId: null, error: 'Sign in to Codex before planning.' });\n      return;\n    }\n"
+              if guard not in section:
+                  raise SystemExit('Plan auth guard anchor missing')
+              section = section.replace(guard, guard + "\n" + wanted, 1)
+              # Remove the later duplicate busy/initial working publish if present.
+              duplicate = "      this.patch({ state: 'busy', message: '', approval: null });\n      this.activity('thinking', 'Planning', request.userText.length > 110 ? `${request.userText.slice(0, 107)}…` : request.userText);\n      publishCodexPlanState({ status: 'working', userText: request.userText, text: '', threadId, turnId: null, error: null });"
+              replacement = "      this.activity('thinking', 'Planning', request.userText.length > 110 ? `${request.userText.slice(0, 107)}…` : request.userText);\n      publishCodexPlanState({ status: 'working', userText: request.userText, text: '', threadId, turnId: null, error: null });"
+              section = section.replace(duplicate, replacement, 1)
+              text = text[:start] + section + text[end:]
+          path.write_text(text)
+          PY
+
+      - name: Add Plan protocol regression
+        run: |
+          cat > apps/desktop/tests/codex-plan-mode.test.js <<'EOF'
+          import assert from 'node:assert/strict';
+          import { readFile } from 'node:fs/promises';
+          import { test } from 'node:test';
+
+          async function source(path) {
+            return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+          }
+
+          test('Plan first uses official Codex collaboration mode without creating a code generation', async () => {
+            const [client, runtime, app, card, entry] = await Promise.all([
+              source('src/codex/client.ts'),
+              source('src/codex/runtime.ts'),
+              source('src/App.tsx'),
+              source('src/components/PlanCard.tsx'),
+              source('src/main.tsx'),
+            ]);
+
+            for (const token of [
+              'experimentalApi: true',
+              "collaborationMode/list",
+              'startPlanTurn(',
+              "review/start",
+              'forkThreadAt(',
+              'lastTurnId',
+            ]) assert.ok(client.includes(token), `Codex Plan/Review client missing ${token}`);
+
+            for (const token of [
+              'CODEX_PLAN_REQUEST_EVENT',
+              'listCollaborationModes()',
+              'findPlanMode(',
+              "activeTurnKind: 'build' | 'plan'",
+              "case 'item/plan/delta':",
+              'planSawStructuredDelta',
+              "if (this.activeTurnKind === 'plan')",
+              'Plan ready',
+            ]) assert.ok(runtime.includes(token), `Plan runtime missing ${token}`);
+
+            const startPlan = runtime.slice(runtime.indexOf('private async startPlan'), runtime.indexOf('private readonly handleTimelineRestore'));
+            assert.ok(startPlan.indexOf("this.patch({ state: 'busy'") >= 0, 'Plan must reserve Codex runtime before async discovery');
+            assert.ok(startPlan.indexOf("this.patch({ state: 'busy'") < startPlan.indexOf('await '), 'Plan must become busy before its first await');
+
+            const turnStarted = runtime.slice(runtime.indexOf("case 'turn/started'"), runtime.indexOf("case 'item/started'"));
+            assert.ok(turnStarted.includes("if (this.activeTurnKind === 'plan')"));
+            const planBranch = turnStarted.slice(turnStarted.indexOf("if (this.activeTurnKind === 'plan')"), turnStarted.indexOf('} else {'));
+            assert.ok(!planBranch.includes('turnSerial: this.snapshot.turnSerial + 1'), 'Plan turn must not advance code generation');
+
+            const completed = runtime.slice(runtime.indexOf("case 'turn/completed'"), runtime.indexOf("case 'turn/failed'"));
+            const planCompleted = completed.slice(completed.indexOf("if (this.activeTurnKind === 'plan')"), completed.indexOf('const codexThreadId'));
+            assert.ok(!planCompleted.includes('checkpointActiveTimelineTurn'), 'Plan completion must not create Timeline checkpoints');
+            assert.ok(!planCompleted.includes('completionSerial'), 'Plan completion must not trigger post-turn QA');
+
+            for (const token of ['PlanCard', 'subscribeCodexPlan', 'executePlan', 'shouldPlanNow', 'Plan first', 'buildApprovedPlan']) {
+              assert.ok(app.includes(token), `Plan product flow missing ${token}`);
+            }
+            for (const token of ['Plan ready', 'Build this', 'Dismiss', 'no product files are changed']) {
+              assert.ok(card.includes(token), `Plan Card missing ${token}`);
+            }
+            assert.ok(entry.includes("./styles/plan.css"));
+          });
+          EOF
+
+      - name: Remove temporary Plan bootstrap workflows
+        run: |
+          rm -f \
+            .github/workflows/monument-plan-client-bootstrap.yml \
+            .github/workflows/monument-plan-runtime-bootstrap.yml \
+            .github/workflows/monument-plan-ui-bootstrap.yml \
+            .github/workflows/monument-plan-gate-finalize.yml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate finalized Plan gate
+        working-directory: apps/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+          npm run build
+
+      - name: Commit finalized Plan gate
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '4189828+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat: finalize official Codex Plan first flow'
+          git push origin HEAD:feature/codex-plan-review-v3
