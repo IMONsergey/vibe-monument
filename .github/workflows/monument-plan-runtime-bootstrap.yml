@@ -1,0 +1,245 @@
+name: Monument Codex Plan Runtime Bootstrap
+
+on:
+  push:
+    branches: [feature/codex-plan-review-v3]
+    paths:
+      - '.github/workflows/monument-plan-runtime-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/codex-plan-review-v3
+
+      - name: Wire Plan collaboration mode into CodexRuntime
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/desktop/src/codex/runtime.ts')
+          text = path.read_text()
+
+          def once(old, new, label):
+              global text
+              if old not in text:
+                  raise SystemExit(f'missing Plan runtime anchor: {label}')
+              text = text.replace(old, new, 1)
+
+          if "from './plan'" not in text:
+              once(
+                  "import { AUTO_REPAIR_EVENT, MAX_AUTO_REPAIR_ATTEMPTS, type AutoRepairRequest } from '../repair/controller';\n",
+                  "import { AUTO_REPAIR_EVENT, MAX_AUTO_REPAIR_ATTEMPTS, type AutoRepairRequest } from '../repair/controller';\nimport { CODEX_PLAN_REQUEST_EVENT, publishCodexPlanState, type CodexPlanRequest } from './plan';\n",
+                  'plan import',
+              )
+
+          if 'function findPlanMode(' not in text:
+              anchor = "function asThread(value: unknown): CodexThreadSummary | null {"
+              helper = '''function findPlanMode(value: unknown): unknown | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findPlanMode(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['name', 'id', 'mode', 'label']) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.toLowerCase().includes('plan')) return value;
+  }
+  for (const key of ['data', 'modes', 'items', 'collaborationModes']) {
+    if (key in record) {
+      const found = findPlanMode(record[key]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+'''
+              once(anchor, helper + anchor, 'plan mode finder')
+
+          if 'private activeTurnKind' not in text:
+              once(
+                  "  private handledRepairEvidence = new Set<string>();\n",
+                  "  private handledRepairEvidence = new Set<string>();\n  private activeTurnKind: 'build' | 'plan' = 'build';\n  private planText = '';\n  private planPrompt = '';\n  private planSawStructuredDelta = false;\n",
+                  'plan state fields',
+              )
+
+          if 'CODEX_PLAN_REQUEST_EVENT, this.handlePlanRequest' not in text:
+              once(
+                  "      window.addEventListener(AUTO_REPAIR_EVENT, this.handleRepairEvent);\n",
+                  "      window.addEventListener(AUTO_REPAIR_EVENT, this.handleRepairEvent);\n      window.addEventListener(CODEX_PLAN_REQUEST_EVENT, this.handlePlanRequest);\n",
+                  'plan request listener',
+              )
+
+          if "this.activeTurnKind = 'build';\n    if (!this.connected)" not in text:
+              once(
+                  "    this.autoRepairAttempts.set(projectRoot, 0);\n    if (!this.connected)",
+                  "    this.autoRepairAttempts.set(projectRoot, 0);\n    this.activeTurnKind = 'build';\n    if (!this.connected)",
+                  'normal send turn kind',
+              )
+
+          if 'private readonly handlePlanRequest' not in text:
+              anchor = "  private readonly handleTimelineRestore = () => {"
+              methods = '''  private readonly handlePlanRequest = (event: Event) => {
+    const request = (event as CustomEvent<CodexPlanRequest>).detail;
+    if (!request) return;
+    void this.startPlan(request);
+  };
+
+  private async startPlan(request: CodexPlanRequest): Promise<void> {
+    if (!this.connected || this.snapshot.state !== 'ready' || this.snapshot.activeTurnId) {
+      publishCodexPlanState({ status: 'error', userText: request.userText, text: '', threadId: this.snapshot.activeThreadId, turnId: null, error: 'Codex is not ready to plan.' });
+      return;
+    }
+    if (this.snapshot.account && !this.snapshot.account.readyForTurns) {
+      publishCodexPlanState({ status: 'error', userText: request.userText, text: '', threadId: this.snapshot.activeThreadId, turnId: null, error: 'Sign in to Codex before planning.' });
+      return;
+    }
+
+    let threadId = this.snapshot.activeThreadId;
+    try {
+      if (!threadId) {
+        const created = await this.client.startThread({ cwd: request.projectRoot });
+        const record = recordOf(created);
+        const thread = asThread(record.thread ?? created);
+        if (!thread) throw new Error('Codex did not return a thread id for Plan mode');
+        threadId = thread.id;
+        this.patch({ threads: [thread, ...this.snapshot.threads], activeThreadId: thread.id });
+      }
+
+      const modes = await this.client.listCollaborationModes();
+      const planMode = findPlanMode(modes);
+      if (!planMode) throw new Error('Installed Codex did not advertise a Plan collaboration mode');
+
+      this.activeTurnKind = 'plan';
+      this.planText = '';
+      this.planPrompt = request.userText;
+      this.planSawStructuredDelta = false;
+      this.patch({ state: 'busy', message: '', approval: null });
+      this.activity('thinking', 'Planning', request.userText.length > 110 ? `${request.userText.slice(0, 107)}…` : request.userText);
+      publishCodexPlanState({ status: 'working', userText: request.userText, text: '', threadId, turnId: null, error: null });
+
+      const started = await this.client.startPlanTurn(threadId, request.compiledText, planMode, { cwd: request.projectRoot });
+      const response = recordOf(started);
+      const turnId = objectId(response.turn ?? started);
+      if (turnId) this.patch({ activeTurnId: turnId });
+      publishCodexPlanState({ status: 'working', userText: request.userText, text: this.planText, threadId, turnId, error: null });
+    } catch (error) {
+      this.activeTurnKind = 'build';
+      this.planText = '';
+      this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', activeTurnId: null, approval: null });
+      const message = String(error instanceof Error ? error.message : error);
+      publishCodexPlanState({ status: 'error', userText: request.userText, text: '', threadId, turnId: null, error: message });
+      this.activity('error', 'Plan mode unavailable', message);
+    }
+  }
+
+'''
+              once(anchor, methods + anchor, 'plan runtime methods')
+
+          if "publishCodexPlanState({ status: 'idle'" not in text:
+              once(
+                  "  private readonly handleTimelineRestore = () => {\n    if (this.snapshot.activeTurnId",
+                  "  private readonly handleTimelineRestore = () => {\n    if (this.snapshot.activeTurnId",
+                  'restore anchor presence',
+              )
+              once(
+                  "    this.newTask();\n    this.activity('system', 'Clean Codex context'",
+                  "    this.activeTurnKind = 'build';\n    this.planText = '';\n    this.planPrompt = '';\n    publishCodexPlanState({ status: 'idle', userText: '', text: '', threadId: null, turnId: null, error: null });\n    this.newTask();\n    this.activity('system', 'Clean Codex context'",
+                  'clear Plan on Timeline restore',
+              )
+
+          if "this.activeTurnKind = 'build';\n    this.patch({ state: 'busy'" not in text:
+              once(
+                  "    this.patch({ state: 'busy', message: '', approval: null });\n    const title = request.source",
+                  "    this.activeTurnKind = 'build';\n    this.patch({ state: 'busy', message: '', approval: null });\n    const title = request.source",
+                  'repair turn kind',
+              )
+
+          old_turn_started = '''      case 'turn/started':
+        this.patch({
+          state: 'busy',
+          message: '',
+          activeTurnId: objectId(params.turn) ?? this.snapshot.activeTurnId,
+          turnSerial: this.snapshot.turnSerial + 1,
+        });
+        break;'''
+          new_turn_started = '''      case 'turn/started': {
+        const activeTurnId = objectId(params.turn) ?? this.snapshot.activeTurnId;
+        if (this.activeTurnKind === 'plan') {
+          this.patch({ state: 'busy', message: '', activeTurnId });
+          publishCodexPlanState({ status: 'working', userText: this.planPrompt, text: this.planText, threadId: this.snapshot.activeThreadId, turnId: activeTurnId, error: null });
+        } else {
+          this.patch({
+            state: 'busy',
+            message: '',
+            activeTurnId,
+            turnSerial: this.snapshot.turnSerial + 1,
+          });
+        }
+        break;
+      }'''
+          if old_turn_started in text:
+              text = text.replace(old_turn_started, new_turn_started, 1)
+          elif "this.activeTurnKind === 'plan'" not in text[text.find("case 'turn/started'"):text.find("case 'item/started'")]:
+              raise SystemExit('turn/started Plan projection missing and old anchor not found')
+
+          if "case 'item/plan/delta':" not in text:
+              anchor = "      case 'item/agentMessage/delta':\n"
+              cases = '''      case 'item/plan/delta':
+        if (this.activeTurnKind === 'plan' && typeof params.delta === 'string') {
+          this.planSawStructuredDelta = true;
+          this.planText += params.delta;
+          publishCodexPlanState({ status: 'working', userText: this.planPrompt, text: this.planText, threadId: this.snapshot.activeThreadId, turnId: this.snapshot.activeTurnId, error: null });
+        }
+        break;
+'''
+              once(anchor, cases + anchor, 'plan delta projection')
+
+          old_agent = "      case 'item/agentMessage/delta':\n        if (typeof params.delta === 'string') this.patch({ message: this.snapshot.message + params.delta });\n        break;"
+          if old_agent in text:
+              new_agent = "      case 'item/agentMessage/delta':\n        if (typeof params.delta === 'string') {\n          if (this.activeTurnKind === 'plan') {\n            if (!this.planSawStructuredDelta) {\n              this.planText += params.delta;\n              publishCodexPlanState({ status: 'working', userText: this.planPrompt, text: this.planText, threadId: this.snapshot.activeThreadId, turnId: this.snapshot.activeTurnId, error: null });\n            }\n          } else {\n            this.patch({ message: this.snapshot.message + params.delta });\n          }\n        }\n        break;"
+              text = text.replace(old_agent, new_agent, 1)
+
+          old_completed = "      case 'turn/completed': {\n        const codexThreadId = this.snapshot.activeThreadId;"
+          if old_completed in text and "if (this.activeTurnKind === 'plan')" not in text[text.find(old_completed):text.find("case 'turn/failed'")]:
+              new_completed = "      case 'turn/completed': {\n        if (this.activeTurnKind === 'plan') {\n          const text = this.planText.trim();\n          this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', activeTurnId: null, approval: null, message: '' });\n          publishCodexPlanState({ status: 'ready', userText: this.planPrompt, text, threadId: this.snapshot.activeThreadId, turnId: objectId(params.turn), error: text ? null : 'Codex completed Plan mode without a plan body.' });\n          this.activity('review', 'Plan ready', text ? 'Review the plan, then choose Build this.' : 'Plan completed without structured plan text.');\n          this.activeTurnKind = 'build';\n          this.planSawStructuredDelta = false;\n          break;\n        }\n        const codexThreadId = this.snapshot.activeThreadId;"
+              text = text.replace(old_completed, new_completed, 1)
+
+          old_failed = "      case 'turn/failed':\n      case 'error':\n        this.patch({ state: 'error', activeTurnId: null, approval: null });"
+          if old_failed in text:
+              new_failed = "      case 'turn/failed':\n        if (this.activeTurnKind === 'plan') {\n          const message = typeof params.error === 'string' ? params.error : 'Codex Plan turn failed.';\n          this.activeTurnKind = 'build';\n          this.patch({ state: this.snapshot.account?.readyForTurns === false ? 'auth-required' : 'ready', activeTurnId: null, approval: null });\n          publishCodexPlanState({ status: 'error', userText: this.planPrompt, text: this.planText, threadId: this.snapshot.activeThreadId, turnId: null, error: message });\n          this.activity('error', 'Plan failed', message);\n          break;\n        }\n        this.patch({ state: 'error', activeTurnId: null, approval: null });\n        this.activity('error', 'Codex run failed', JSON.stringify(params));\n        break;\n      case 'error':\n        this.patch({ state: 'error', activeTurnId: null, approval: null });"
+              text = text.replace(old_failed, new_failed, 1)
+
+          path.write_text(text)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate Plan runtime compiles
+        working-directory: apps/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+          npm run build
+
+      - name: Commit Plan runtime and remove bootstrap workflow
+        run: |
+          git rm -f .github/workflows/monument-plan-runtime-bootstrap.yml
+          git add apps/desktop/src/codex/runtime.ts
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: project official Codex Plan mode into product state'
+          git push origin HEAD:feature/codex-plan-review-v3
