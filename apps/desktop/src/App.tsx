@@ -4,10 +4,12 @@ import { BrowserEvidencePanel } from './components/BrowserEvidencePanel';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { FileTree } from './components/FileTree';
+import { PromptQueue } from './components/PromptQueue';
 import { VersionTimelinePanel } from './components/VersionTimelinePanel';
 import { CodexRuntime } from './codex/runtime';
 import { compileTurnText } from './context/turn';
 import {
+  browserEvidenceHasIssues,
   captureBrowserEvidence,
   clearBrowserEvidenceBuffer,
   markBrowserEvidenceStale,
@@ -33,11 +35,25 @@ import {
 } from './host/native';
 import { NativePreview } from './preview/NativePreview';
 import {
+  getPreviewSelection,
   selectionLabel,
   setPreviewSelection,
   subscribePreviewSelection,
   type PreviewSelection,
 } from './preview/selection';
+import {
+  detachPromptQueueThreads,
+  enqueuePrompt,
+  loadPromptQueue,
+  moveQueuedPrompt,
+  removeQueuedPrompt,
+  restoreQueuedPromptToFront,
+  setPromptQueuePaused,
+  subscribePromptQueue,
+  takeNextPrompt,
+  type PromptQueueState,
+  type QueuedPrompt,
+} from './queue/controller';
 import {
   backTimeline,
   checkpointCompletedTurn,
@@ -153,6 +169,9 @@ export function App() {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [timelineBusy, setTimelineBusy] = useState(false);
   const [timelineDiff, setTimelineDiff] = useState<TimelineDiff | null>(null);
+  const [promptQueueState, setPromptQueueState] = useState<PromptQueueState | null>(null);
+  const [queueDispatching, setQueueDispatching] = useState(false);
+  const [queueFailureOverride, setQueueFailureOverride] = useState<number | null>(null);
   const handledCompletionSerial = useRef(0);
   const handledTurnSerial = useRef(0);
   const verificationProjectId = useRef<string | null>(null);
@@ -164,6 +183,18 @@ export function App() {
   useEffect(() => subscribePreviewSelection(setSelection), []);
   useEffect(() => subscribeVerification(setVerificationProgress), []);
   useEffect(() => subscribeBrowserEvidence(setBrowserEvidence), []);
+
+  useEffect(() => {
+    if (!project) {
+      setPromptQueueState(null);
+      return;
+    }
+    const unsubscribe = subscribePromptQueue(project.id, setPromptQueueState);
+    void loadPromptQueue(project.id, true).catch((error) => {
+      setNotice(`Prompt queue unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return unsubscribe;
+  }, [project?.id]);
 
   const clearSelection = useCallback(() => setPreviewSelection(null), []);
 
@@ -184,6 +215,8 @@ export function App() {
     setTimelineOpen(false);
     setTimelineDiff(null);
     setTimelineState(null);
+    setPromptQueueState(null);
+    setQueueFailureOverride(null);
     setWorkspace((current) => ({ ...current, project: next }));
     setRuntimeUrl(null);
     setRuntimeLines([]);
@@ -390,38 +423,82 @@ export function App() {
     }
   }, [clearSelection, native, runtimeUrl]);
 
-  const sendPrompt = useCallback(async () => {
-    const text = prompt.trim();
-    if (!text || !project || sending || workspace.codexState !== 'ready') return;
+  const postTurnPending = workspace.completionSerial > handledCompletionSerial.current;
+  const canExecutePromptNow = Boolean(
+    project
+    && workspace.codexState === 'ready'
+    && !sending
+    && !timelineBusy
+    && !verificationBusy
+    && !browserEvidenceBusy
+    && !postTurnPending,
+  );
+
+  const executePrompt = useCallback(async (
+    text: string,
+    capturedSelection: PreviewSelection | null,
+    clearLiveSelection: boolean,
+  ): Promise<boolean> => {
+    if (!project || workspace.codexState !== 'ready' || sending) return false;
     setSending(true);
+    setTimelineBusy(true);
     setNotice(null);
     try {
-      setTimelineBusy(true);
-      try {
-        const prepared = await prepareTimeline(project);
-        setTimelineState(prepared);
-        rememberTimelinePrompt(project.id, text);
-      } finally {
-        setTimelineBusy(false);
-      }
-      const turnText = await compileTurnText(text, project.rootPath);
+      const prepared = await prepareTimeline(project);
+      setTimelineState(prepared);
+      rememberTimelinePrompt(project.id, text);
+      const turnText = await compileTurnText(text, project.rootPath, capturedSelection);
       await codex.send(turnText, project.rootPath);
-      setPrompt('');
-      clearSelection();
+      if (clearLiveSelection) clearSelection();
+      return true;
     } catch (error) {
       forgetTimelinePrompt(project.id);
       setNotice(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setSending(false);
       setTimelineBusy(false);
     }
-  }, [clearSelection, codex, project, prompt, sending, workspace.codexState]);
+  }, [clearSelection, codex, project, sending, workspace.codexState]);
+
+  const submitPrompt = useCallback(async () => {
+    const text = prompt.trim();
+    if (!text || !project) return;
+    if (workspace.codexState === 'auth-required' || workspace.codexState === 'approval') return;
+    if (workspace.codexState === 'error' || workspace.codexState === 'idle') {
+      setNotice('Codex is not ready. Resolve the connection before adding work.');
+      return;
+    }
+
+    const capturedSelection = getPreviewSelection();
+    const hasPendingQueue = Boolean(promptQueueState?.items.length || queueDispatching);
+    const shouldQueue = !canExecutePromptNow || hasPendingQueue;
+    if (shouldQueue) {
+      try {
+        await enqueuePrompt(project.id, text, capturedSelection, workspace.activeThreadId);
+        setPrompt('');
+        clearSelection();
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+
+    setPrompt('');
+    if (!(await executePrompt(text, capturedSelection, true))) setPrompt(text);
+  }, [canExecutePromptNow, clearSelection, executePrompt, project, prompt, promptQueueState?.items.length, queueDispatching, workspace.activeThreadId, workspace.codexState]);
 
   const startNewTask = useCallback(() => {
     codex.newTask();
     setPrompt('');
     clearSelection();
-  }, [clearSelection, codex]);
+    if (project) void detachPromptQueueThreads(project.id);
+  }, [clearSelection, codex, project]);
+
+  const selectTask = useCallback((threadId: string) => {
+    codex.selectThread(threadId);
+    if (project && promptQueueState?.items.length) void setPromptQueuePaused(project.id, true);
+  }, [codex, project, promptQueueState?.items.length]);
 
   const resolveApproval = useCallback(async (decision: SimpleApprovalDecision) => {
     setApprovalBusy(true);
@@ -511,13 +588,15 @@ export function App() {
     setTimelineState(result.state);
     setTimelineDiff(null);
     clearSelection();
+    setQueueFailureOverride(null);
+    await detachPromptQueueThreads(project.id).catch(() => undefined);
     await markBrowserEvidenceStale(project.id).catch(() => undefined);
     if (runtimeUrl) await clearBrowserEvidenceBuffer().catch(() => undefined);
     await refreshProjectSnapshot(project.rootPath, project.id);
     if (runtimeUrl) await refreshPreview().catch(() => undefined);
     setNotice(result.safetyCheckpoint
-      ? 'Current changes were saved as a safety version before restoring. You can always return to them.'
-      : `Restored ${result.target.title}. Later versions are still available.`);
+      ? 'Current changes were saved as a safety version before restoring. Pending prompts were paused and detached from the old task.'
+      : `Restored ${result.target.title}. Later versions are still available; pending prompts are paused until you resume them.`);
   }, [clearSelection, project, refreshPreview, refreshProjectSnapshot, runtimeUrl]);
 
   const restoreVersion = useCallback(async (checkpointId: string) => {
@@ -634,6 +713,68 @@ export function App() {
   const currentVersionLabel = currentTimelineCheckpoint
     ? (currentTimelineCheckpoint.kind === 'baseline' ? 'Original' : `V${currentTimelineCheckpoint.sequence}`)
     : null;
+  const deterministicQueueBlock = Boolean(
+    verificationProgress
+    && !deterministicEvidenceStale
+    && (verificationProgress.evidence.status === 'failed' || verificationProgress.evidence.status === 'error'),
+  );
+  const browserQueueBlock = Boolean(browserEvidence && !browserEvidenceStale && browserEvidenceHasIssues(browserEvidence));
+  const queueFailureBypassed = currentCodeTurnSerial != null && queueFailureOverride === currentCodeTurnSerial;
+  const queueBlockedByEvidence = (deterministicQueueBlock || browserQueueBlock) && !queueFailureBypassed;
+  const promptWillQueue = Boolean(
+    project
+    && prompt.trim()
+    && (!canExecutePromptNow || queueDispatching || (promptQueueState?.items.length ?? 0) > 0),
+  );
+
+  useEffect(() => {
+    setQueueFailureOverride(null);
+  }, [currentCodeTurnSerial]);
+
+  useEffect(() => {
+    if (!project || !promptQueueState?.items.length || promptQueueState.paused || queueDispatching) return;
+    if (queueBlockedByEvidence || !canExecutePromptNow || postTurnPending) return;
+    let disposed = false;
+    setQueueDispatching(true);
+    void (async () => {
+      let item: QueuedPrompt | null = null;
+      try {
+        const taken = await takeNextPrompt(project.id);
+        item = taken.item;
+        if (!item || disposed) return;
+        if (item.threadId) codex.selectThread(item.threadId);
+        const success = await executePrompt(item.text, item.selection, false);
+        if (!success && !disposed) await restoreQueuedPromptToFront(project.id, item);
+      } catch (error) {
+        if (item && !disposed) await restoreQueuedPromptToFront(project.id, item).catch(() => undefined);
+        if (!disposed) setNotice(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!disposed) setQueueDispatching(false);
+      }
+    })();
+    return () => { disposed = true; };
+  }, [canExecutePromptNow, codex, executePrompt, postTurnPending, project, promptQueueState?.items.length, promptQueueState?.paused, queueBlockedByEvidence, queueDispatching]);
+
+  const toggleQueuePause = useCallback(() => {
+    if (!project || !promptQueueState) return;
+    void setPromptQueuePaused(project.id, !promptQueueState.paused);
+  }, [project, promptQueueState]);
+
+  const continueQueueAnyway = useCallback(() => {
+    if (!project || currentCodeTurnSerial == null) return;
+    setQueueFailureOverride(currentCodeTurnSerial);
+    void setPromptQueuePaused(project.id, false);
+  }, [currentCodeTurnSerial, project]);
+
+  const moveQueueItem = useCallback((itemId: string, direction: -1 | 1) => {
+    if (!project) return;
+    void moveQueuedPrompt(project.id, itemId, direction);
+  }, [project]);
+
+  const removeQueueItem = useCallback((itemId: string) => {
+    if (!project) return;
+    void removeQueuedPrompt(project.id, itemId);
+  }, [project]);
 
   return (
     <div className="monument-app">
@@ -667,7 +808,7 @@ export function App() {
               <span className="task-dot new" /><span><strong>New task</strong><small>Describe what should change</small></span>
             </button>
             {workspace.threads.map((thread) => (
-              <button type="button" className={`task-item ${workspace.activeThreadId === thread.id ? 'active' : ''}`} key={thread.id} onClick={() => codex.selectThread(thread.id)}>
+              <button type="button" className={`task-item ${workspace.activeThreadId === thread.id ? 'active' : ''}`} key={thread.id} onClick={() => selectTask(thread.id)}>
                 <span className="task-dot" /><span><strong>{thread.title || 'Codex task'}</strong><small>{thread.status || basename(thread.cwd || project?.rootPath || '')}</small></span>
               </button>
             ))}
@@ -724,16 +865,25 @@ export function App() {
             ) : null}
             {workspace.approval ? <ApprovalCard approval={workspace.approval} answers={userAnswers} busy={approvalBusy} onAnswers={setUserAnswers} onDecision={(decision) => void resolveApproval(decision)} onSubmitAnswers={() => void submitAnswers()} /> : null}
             {workspace.codexMessage ? <div className="codex-live"><span>Codex</span><p>{workspace.codexMessage}</p></div> : null}
+            <PromptQueue
+              state={promptQueueState}
+              dispatching={queueDispatching}
+              blockedByEvidence={queueBlockedByEvidence}
+              onTogglePause={toggleQueuePause}
+              onContinueAnyway={continueQueueAnyway}
+              onMove={moveQueueItem}
+              onRemove={removeQueueItem}
+            />
             <div className="composer">
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && workspace.codexState === 'ready') {
-                    event.preventDefault(); void sendPrompt();
+                  if (event.key === 'Enter' && !event.shiftKey && project && workspace.codexState !== 'approval' && workspace.codexState !== 'auth-required') {
+                    event.preventDefault(); void submitPrompt();
                   }
                 }}
-                placeholder={project ? (workspace.codexState === 'auth-required' ? 'Sign in to Codex to start building…' : workspace.approval ? 'Resolve the request above to continue…' : selection ? 'Tell Monument what to change about the selected element…' : 'Tell Monument what to build or change…') : 'Open a project to start building…'}
+                placeholder={project ? (workspace.codexState === 'auth-required' ? 'Sign in to Codex to start building…' : workspace.approval ? 'Resolve the request above to continue…' : workspace.codexState === 'busy' || postTurnPending || verificationBusy || timelineBusy || browserEvidenceBusy ? (selection ? 'Describe the next change for the selected element…' : 'Add the next change…') : selection ? 'Tell Monument what to change about the selected element…' : 'Tell Monument what to build or change…') : 'Open a project to start building…'}
                 disabled={!project || workspace.codexState === 'approval' || workspace.codexState === 'auth-required'}
               />
               <div className="composer-footer">
@@ -742,10 +892,14 @@ export function App() {
                   {runtimeUrl ? <span className="context-chip">● Live preview</span> : null}
                   {selection ? <span className="context-chip selected-context" title={selection.selector}>⌖ {selectionLabel(selection)} <button type="button" onClick={clearSelection}>×</button></span> : null}
                   {currentVersionLabel ? <span className="context-chip">History · {currentVersionLabel}</span> : null}
+                  {(promptQueueState?.items.length ?? 0) > 0 ? <span className="context-chip">Next · {promptQueueState?.items.length}</span> : null}
                   {verificationStatus ? <span className={`context-chip verification-context ${deterministicEvidenceStale ? 'stale' : verificationProgress?.evidence.status ?? ''}`}>{verificationStatus}</span> : null}
                   {workspace.account?.planType ? <span className="context-chip">Codex · {workspace.account.planType}</span> : null}
                 </div>
-                {workspace.codexState === 'busy' ? <button type="button" className="send-button stop-button" onClick={() => void codex.interrupt()} title="Stop Codex">■</button> : <button type="button" className="send-button" onClick={sendPrompt} disabled={!project || !prompt.trim() || sending || timelineBusy || workspace.codexState !== 'ready'}>{sending ? '…' : '↑'}</button>}
+                <div className="composer-actions">
+                  {promptWillQueue ? <button type="button" className="queue-button" onClick={() => void submitPrompt()}>＋ Queue</button> : null}
+                  {workspace.codexState === 'busy' ? <button type="button" className="send-button stop-button" onClick={() => void codex.interrupt()} title="Stop Codex">■</button> : !promptWillQueue ? <button type="button" className="send-button" onClick={() => void submitPrompt()} disabled={!project || !prompt.trim() || sending || !canExecutePromptNow}>{sending ? '…' : '↑'}</button> : null}
+                </div>
               </div>
             </div>
           </div>
