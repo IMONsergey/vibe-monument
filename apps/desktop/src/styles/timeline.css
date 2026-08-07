@@ -139,6 +139,23 @@
   line-height: 1.4;
 }
 .timeline-card > small { display: block; margin-top: 5px; color: var(--muted-2); font-size: 8px; }
+.timeline-quality-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.timeline-quality {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(24,24,22,.035);
+  color: var(--muted);
+  font-size: 7.5px;
+  font-weight: 650;
+  line-height: 1;
+}
+.timeline-quality.good { border-color: rgba(105,134,32,.16); background: rgba(105,134,32,.08); color: #53622f; }
+.timeline-quality.bad { border-color: rgba(166,66,54,.16); background: rgba(166,66,54,.065); color: #8b4138; }
+.timeline-quality.muted { color: var(--muted-2); }
 .timeline-card-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 9px; }
 .timeline-card-actions button {
   height: 25px;
