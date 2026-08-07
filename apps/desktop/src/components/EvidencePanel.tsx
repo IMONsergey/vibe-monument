@@ -126,7 +126,7 @@ export function EvidencePanel({
           </div>
           <button
             type="button"
-            disabled={autoBusy || evidence?.status === 'running' || (!evidence.projectRoot && !autoEnabled)}
+            disabled={autoBusy || evidence?.status === 'running' || (!evidence?.projectRoot && !autoEnabled)}
             onClick={() => void (autoEnabled ? disableAuto() : enableAuto())}
           >
             {autoBusy ? 'Saving…' : autoEnabled ? 'Disable' : 'Enable for this project'}
