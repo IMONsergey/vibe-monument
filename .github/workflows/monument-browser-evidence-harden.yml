@@ -1,0 +1,85 @@
+name: Monument Browser Evidence Harden
+
+on:
+  push:
+    branches: [monument/browser-evidence]
+    paths:
+      - '.github/workflows/monument-browser-evidence-harden.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: monument/browser-evidence
+
+      - name: Wait for Browser Evidence integration checkpoint
+        run: |
+          for attempt in $(seq 1 18); do
+            git fetch origin monument/browser-evidence
+            git reset --hard origin/monument/browser-evidence
+            if grep -q '0.2.0-alpha.4' apps/desktop/package.json && grep -q 'preview_collect_browser_evidence' apps/desktop/src-tauri/src/preview_runtime.rs; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Browser Evidence bootstrap did not land in time' >&2
+          exit 1
+
+      - name: Apply privacy and payload hardening
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/desktop/src-tauri/src/browser_evidence.rs')
+          text = path.read_text()
+
+          def once(old, new, label):
+              global text
+              if old not in text:
+                  raise SystemExit(f'missing hardening anchor: {label}')
+              text = text.replace(old, new, 1)
+
+          once('pub const MAX_EVENT_TEXT: usize = 1_000;\npub const SLOW_REQUEST_MS: u64 = 2_000;\n', 'pub const MAX_EVENT_TEXT: usize = 600;\npub const MAX_PAYLOAD_BYTES: usize = 48 * 1024;\npub const SLOW_REQUEST_MS: u64 = 2_000;\n', 'native payload bounds')
+          once("  const LIMITS = { console: 60, runtime: 40, network: 80, text: 1000, slowMs: 2000 };", "  const LIMITS = { console: 60, runtime: 40, network: 80, text: 600, slowMs: 2000 };", 'JS text bound')
+          old_trim = '''    text = String(text || '').replace(/\\s+/g, ' ').trim();
+    return text.length <= max ? text : `${text.slice(0, max)}…`;'''
+          new_trim = '''    text = String(text || '').replace(/\\s+/g, ' ').trim();
+    text = text
+      .replace(/\\bBearer\\s+[A-Za-z0-9._~+\\/=-]{8,}/gi, 'Bearer [redacted]')
+      .replace(/\\b(?:sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[baprs]-[A-Za-z0-9-]{12,})\\b/g, '[redacted-token]')
+      .replace(/\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b/g, '[redacted-jwt]')
+      .replace(/([?&][^\\s=&#]{1,40}=)[^\\s&#]+/g, '$1[redacted]');
+    return text.length <= max ? text : `${text.slice(0, max)}…`;'''
+          once(old_trim, new_trim, 'text secret redaction')
+          once("        console: state.console.slice(),\n        runtime: state.runtime.slice(),\n        network: state.network.slice(),", "        console: state.console.slice(-20),\n        runtime: state.runtime.slice(-15),\n        network: state.network.slice(-30),", 'bounded snapshot window')
+          once('    let Some(json) = title.strip_prefix(BROWSER_EVIDENCE_PREFIX) else { return Ok(None); };\n    let snapshot = serde_json::from_str::<BrowserEvidenceSnapshot>(json)', '    let Some(json) = title.strip_prefix(BROWSER_EVIDENCE_PREFIX) else { return Ok(None); };\n    if json.len() > MAX_PAYLOAD_BYTES { return Err("Browser evidence payload exceeded Monument byte bound".into()); }\n    let snapshot = serde_json::from_str::<BrowserEvidenceSnapshot>(json)', 'native byte limit')
+          once('    use super::{collect_script, parse_title_payload, BROWSER_EVIDENCE_SCRIPT, MAX_CONSOLE_EVENTS, MAX_NETWORK_EVENTS, MAX_RUNTIME_EVENTS, SLOW_REQUEST_MS};', '    use super::{collect_script, parse_title_payload, BROWSER_EVIDENCE_SCRIPT, MAX_CONSOLE_EVENTS, MAX_NETWORK_EVENTS, MAX_PAYLOAD_BYTES, MAX_RUNTIME_EVENTS, SLOW_REQUEST_MS};', 'test imports')
+          once('        assert!(BROWSER_EVIDENCE_SCRIPT.contains("url.pathname"));', '        assert!(BROWSER_EVIDENCE_SCRIPT.contains("url.pathname"));\n        assert!(BROWSER_EVIDENCE_SCRIPT.contains("Bearer [redacted]"));\n        assert!(BROWSER_EVIDENCE_SCRIPT.contains("[redacted-token]"));\n        assert!(BROWSER_EVIDENCE_SCRIPT.contains("[redacted-jwt]"));', 'redaction assertions')
+          once('        assert!(SLOW_REQUEST_MS >= 1_500);', '        assert!(SLOW_REQUEST_MS >= 1_500);\n        assert!(MAX_PAYLOAD_BYTES <= 48 * 1024);', 'payload assertion')
+          path.write_text(text)
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate hardened web/source contracts
+        working-directory: apps/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+          npm run build
+
+      - name: Commit privacy hardening
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/desktop/src-tauri/src/browser_evidence.rs
+          git commit -m 'security: bound and redact browser evidence payloads'
+          git push origin HEAD:monument/browser-evidence
