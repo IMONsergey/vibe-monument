@@ -216,6 +216,7 @@ export function App() {
 
   const refreshPreview = useCallback(async () => {
     if (!runtimeUrl) return;
+    clearSelection();
     if (native) {
       try {
         await invokeNative<void>('preview_reload');
@@ -225,7 +226,7 @@ export function App() {
     } else {
       setPreviewKey((value) => value + 1);
     }
-  }, [native, runtimeUrl]);
+  }, [clearSelection, native, runtimeUrl]);
 
   const sendPrompt = useCallback(async () => {
     const text = prompt.trim();
@@ -233,7 +234,8 @@ export function App() {
     setSending(true);
     setNotice(null);
     try {
-      await codex.send(compileTurnText(text), project.rootPath);
+      const turnText = await compileTurnText(text, project.rootPath);
+      await codex.send(turnText, project.rootPath);
       setPrompt('');
       clearSelection();
     } catch (error) {
