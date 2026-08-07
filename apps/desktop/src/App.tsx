@@ -5,6 +5,7 @@ import {
   inspectProject,
   isNativeHost,
   listenNative,
+  openExternalUrl,
   openProject,
   probeCodexProtocol,
   runtimeStatus,
@@ -16,6 +17,7 @@ import {
 } from './host/native';
 import type {
   ApprovalRequest,
+  CodexAccountSnapshot,
   CodexProtocolProbe,
   CodexRuntimeInfo,
   FileNode,
@@ -35,6 +37,7 @@ const INITIAL_WORKSPACE: WorkspaceState = {
   threads: [],
   codexState: 'idle',
   codexMessage: '',
+  account: null,
   approval: null,
   activity: [],
 };
@@ -72,6 +75,7 @@ function statusText(state: WorkspaceState['codexState']): string {
     case 'ready': return 'Codex ready';
     case 'busy': return 'Codex working';
     case 'approval': return 'Needs attention';
+    case 'auth-required': return 'Sign in to Codex';
     case 'starting': return 'Connecting Codex';
     case 'reconnecting': return 'Reconnecting';
     case 'error': return 'Codex unavailable';
@@ -147,10 +151,7 @@ function ApprovalCard({
   return (
     <section className={`approval-card approval-${approval.kind}`}>
       <div className="approval-heading">
-        <div>
-          <span className="attention-dot" />
-          <strong>{approvalTitle(approval)}</strong>
-        </div>
+        <div><span className="attention-dot" /><strong>{approvalTitle(approval)}</strong></div>
         {approval.isBlocking === false ? <span className="approval-meta">Optional</span> : <span className="approval-meta">Paused</span>}
       </div>
 
@@ -164,11 +165,7 @@ function ApprovalCard({
           {approval.changedPaths.length > 8 ? <small>+{approval.changedPaths.length - 8} more</small> : null}
         </div>
       ) : null}
-      {permissions.length ? (
-        <div className="approval-permissions">
-          {permissions.map((line) => <span key={line}>{line}</span>)}
-        </div>
-      ) : null}
+      {permissions.length ? <div className="approval-permissions">{permissions.map((line) => <span key={line}>{line}</span>)}</div> : null}
 
       {approval.kind === 'user-input' ? (
         <div className="question-stack">
@@ -184,13 +181,7 @@ function ApprovalCard({
                     {options.map((option) => {
                       const active = selected.includes(option.label);
                       return (
-                        <button
-                          type="button"
-                          className={active ? 'active' : ''}
-                          key={option.label}
-                          disabled={busy}
-                          onClick={() => onAnswers({ ...answers, [question.id]: [option.label] })}
-                        >
+                        <button type="button" className={active ? 'active' : ''} key={option.label} disabled={busy} onClick={() => onAnswers({ ...answers, [question.id]: [option.label] })}>
                           <span>{option.label}</span>
                           {option.description ? <small>{option.description}</small> : null}
                         </button>
@@ -202,7 +193,7 @@ function ApprovalCard({
                   <input
                     className="question-input"
                     type={question.isSecret ? 'password' : 'text'}
-                    value={options.length && selected.length ? (selected[0] ?? '') : (selected[0] ?? '')}
+                    value={selected[0] ?? ''}
                     disabled={busy}
                     placeholder={question.isSecret ? 'Enter securely…' : 'Type your answer…'}
                     onChange={(event) => onAnswers({ ...answers, [question.id]: [event.target.value] })}
@@ -240,11 +231,13 @@ function DiagnosticsPanel({
   running,
   runtimeInfo,
   protocol,
+  account,
   onRun,
 }: {
   running: boolean;
   runtimeInfo: CodexRuntimeInfo | null;
   protocol: CodexProtocolProbe | null;
+  account: CodexAccountSnapshot | null;
   onRun: () => void;
 }) {
   return (
@@ -258,6 +251,8 @@ function DiagnosticsPanel({
         <div><span>Architecture</span><strong>Native macOS</strong></div>
         <div><span>Codex process</span><strong>{runtimeInfo ? (runtimeInfo.running ? 'Running' : 'Stopped') : 'Not checked'}</strong></div>
         <div><span>Codex version</span><strong>{runtimeInfo?.version || protocol?.version || 'Not checked'}</strong></div>
+        <div><span>Codex account</span><strong>{account?.email || account?.accountType || (account?.readyForTurns ? 'External provider' : 'Not signed in')}</strong></div>
+        <div><span>ChatGPT plan</span><strong>{account?.planType || '—'}</strong></div>
         <div><span>Protocol schema</span><strong className={protocol?.schemaSupported ? 'diag-good' : protocol ? 'diag-bad' : ''}>{protocol ? (protocol.schemaSupported ? 'Compatible' : 'Unavailable') : 'Not checked'}</strong></div>
         <div><span>Generated schema files</span><strong>{protocol?.generatedFiles ?? '—'}</strong></div>
       </div>
@@ -289,6 +284,7 @@ export function App() {
   const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
   const [codexRuntimeInfo, setCodexRuntimeInfo] = useState<CodexRuntimeInfo | null>(null);
   const [protocolProbe, setProtocolProbe] = useState<CodexProtocolProbe | null>(null);
+  const [authStarting, setAuthStarting] = useState(false);
 
   const project = workspace.project;
   const selectedScript = projectScript(project);
@@ -309,6 +305,7 @@ export function App() {
       threads: snapshot.threads,
       codexState: snapshot.state,
       codexMessage: snapshot.message,
+      account: snapshot.account,
       approval: snapshot.approval,
       activity: snapshot.activity,
     }));
@@ -318,6 +315,10 @@ export function App() {
     setApprovalBusy(false);
     setUserAnswers({});
   }, [workspace.approval?.id]);
+
+  useEffect(() => {
+    if (workspace.account?.readyForTurns) setAuthStarting(false);
+  }, [workspace.account?.readyForTurns]);
 
   useEffect(() => {
     if (!native) return;
@@ -445,12 +446,29 @@ export function App() {
       const [runtimeInfo, protocol] = await Promise.all([codexStatus(), probeCodexProtocol()]);
       setCodexRuntimeInfo(runtimeInfo);
       setProtocolProbe(protocol);
+      await codex.refreshAccount(false).catch(() => undefined);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setDiagnosticsRunning(false);
     }
-  }, [diagnosticsRunning, native]);
+  }, [codex, diagnosticsRunning, native]);
+
+  const startSignIn = useCallback(async () => {
+    if (authStarting) return;
+    setAuthStarting(true);
+    setNotice(null);
+    try {
+      const login = await codex.startChatGptLogin();
+      const target = login.authUrl || login.verificationUrl;
+      if (!target) throw new Error('Codex did not return a sign-in URL');
+      await openExternalUrl(target);
+      setNotice(login.userCode ? `Browser opened. Enter code ${login.userCode} to finish signing in.` : 'Browser opened. Finish signing in to return to Monument.');
+    } catch (error) {
+      setAuthStarting(false);
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, [authStarting, codex]);
 
   return (
     <div className="monument-app">
@@ -465,25 +483,21 @@ export function App() {
         {project?.git.branch ? <span className="branch-label">{project.git.branch}</span> : null}
         <div className="topbar-spacer" />
         <div className={`codex-status ${workspace.codexState}`}><span />{statusText(workspace.codexState)}</div>
+        {workspace.codexState === 'auth-required' ? <button className="auth-button" type="button" disabled={authStarting} onClick={() => void startSignIn()}>{authStarting ? 'Opening…' : 'Sign in'}</button> : null}
         <button className="quiet-button" type="button" onClick={() => setDeveloperOpen((value) => !value)}>Under the hood</button>
         <button className="ship-button" type="button" disabled title="Ship gates come after deterministic verification">Ship</button>
       </header>
 
       <div className="product-layout">
         <aside className="task-rail">
-          <div className="rail-heading">
-            <span>Tasks</span>
-            <button type="button" className="mini-button" onClick={startNewTask}>＋</button>
-          </div>
+          <div className="rail-heading"><span>Tasks</span><button type="button" className="mini-button" onClick={startNewTask}>＋</button></div>
           <div className="task-list">
             <button type="button" className={`task-item ${workspace.activeThreadId === null ? 'active' : ''}`} onClick={startNewTask}>
-              <span className="task-dot new" />
-              <span><strong>New task</strong><small>Describe what should change</small></span>
+              <span className="task-dot new" /><span><strong>New task</strong><small>Describe what should change</small></span>
             </button>
             {workspace.threads.map((thread) => (
               <button type="button" className={`task-item ${workspace.activeThreadId === thread.id ? 'active' : ''}`} key={thread.id} onClick={() => codex.selectThread(thread.id)}>
-                <span className="task-dot" />
-                <span><strong>{thread.title || 'Codex task'}</strong><small>{thread.status || basename(thread.cwd || project?.rootPath || '')}</small></span>
+                <span className="task-dot" /><span><strong>{thread.title || 'Codex task'}</strong><small>{thread.status || basename(thread.cwd || project?.rootPath || '')}</small></span>
               </button>
             ))}
           </div>
@@ -518,9 +532,7 @@ export function App() {
                 {!native ? <small>Launch the native Monument app to access local projects.</small> : null}
               </div>
             ) : runtimeUrl ? (
-              <div className={`preview-shell ${viewport}`}>
-                <iframe key={previewKey} src={runtimeUrl} title={`${project.name} preview`} allow="clipboard-read; clipboard-write" />
-              </div>
+              <div className={`preview-shell ${viewport}`}><iframe key={previewKey} src={runtimeUrl} title={`${project.name} preview`} allow="clipboard-read; clipboard-write" /></div>
             ) : (
               <div className="runtime-ready">
                 <div className="project-avatar">{project.name.slice(0, 1).toUpperCase()}</div>
@@ -532,28 +544,21 @@ export function App() {
                   {project.git.branch ? <span>{project.git.branch}</span> : null}
                 </div>
                 {selectedScript ? (
-                  <button type="button" className="primary-action" onClick={launchPreview} disabled={runtimeStarting}>
-                    {runtimeStarting ? 'Starting preview…' : `Start ${project.suggestedDevCommand || selectedScript}`}
-                  </button>
-                ) : (
-                  <div className="soft-warning">No dev/start/preview script was detected. You can still use Codex and inspect the repository.</div>
-                )}
+                  <button type="button" className="primary-action" onClick={launchPreview} disabled={runtimeStarting}>{runtimeStarting ? 'Starting preview…' : `Start ${project.suggestedDevCommand || selectedScript}`}</button>
+                ) : <div className="soft-warning">No dev/start/preview script was detected. You can still use Codex and inspect the repository.</div>}
               </div>
             )}
             {notice ? <div className="notice"><strong>Monument</strong><span>{notice}</span><button type="button" onClick={() => setNotice(null)}>×</button></div> : null}
           </div>
 
           <div className="prompt-dock">
-            {workspace.approval ? (
-              <ApprovalCard
-                approval={workspace.approval}
-                answers={userAnswers}
-                busy={approvalBusy}
-                onAnswers={setUserAnswers}
-                onDecision={(decision) => void resolveApproval(decision)}
-                onSubmitAnswers={() => void submitAnswers()}
-              />
+            {workspace.codexState === 'auth-required' ? (
+              <div className="auth-card">
+                <div><strong>Connect Codex</strong><span>{workspace.account?.email || 'ChatGPT sign-in is required before Monument can build.'}</span></div>
+                <button type="button" disabled={authStarting} onClick={() => void startSignIn()}>{authStarting ? 'Opening…' : 'Sign in with ChatGPT'}</button>
+              </div>
             ) : null}
+            {workspace.approval ? <ApprovalCard approval={workspace.approval} answers={userAnswers} busy={approvalBusy} onAnswers={setUserAnswers} onDecision={(decision) => void resolveApproval(decision)} onSubmitAnswers={() => void submitAnswers()} /> : null}
             {workspace.codexMessage ? <div className="codex-live"><span>Codex</span><p>{workspace.codexMessage}</p></div> : null}
             <div className="composer">
               <textarea
@@ -565,13 +570,14 @@ export function App() {
                     void sendPrompt();
                   }
                 }}
-                placeholder={project ? (workspace.approval ? 'Resolve the request above to continue…' : 'Tell Monument what to build or change…') : 'Open a project to start building…'}
-                disabled={!project || workspace.codexState === 'approval'}
+                placeholder={project ? (workspace.codexState === 'auth-required' ? 'Sign in to Codex to start building…' : workspace.approval ? 'Resolve the request above to continue…' : 'Tell Monument what to build or change…') : 'Open a project to start building…'}
+                disabled={!project || workspace.codexState === 'approval' || workspace.codexState === 'auth-required'}
               />
               <div className="composer-footer">
                 <div className="context-row">
                   {project ? <span className="context-chip">◎ {project.name}</span> : null}
                   {runtimeUrl ? <span className="context-chip">● Live preview</span> : null}
+                  {workspace.account?.planType ? <span className="context-chip">Codex · {workspace.account.planType}</span> : null}
                 </div>
                 {workspace.codexState === 'busy' ? (
                   <button type="button" className="send-button stop-button" onClick={() => void codex.interrupt()} title="Stop Codex">■</button>
@@ -586,26 +592,14 @@ export function App() {
         {developerOpen ? (
           <aside className="developer-panel">
             <div className="developer-tabs">
-              {(['activity', 'files', 'runtime', 'diagnostics'] as DeveloperTab[]).map((tab) => (
-                <button type="button" key={tab} className={developerTab === tab ? 'active' : ''} onClick={() => setDeveloperTab(tab)}>{tab}</button>
-              ))}
+              {(['activity', 'files', 'runtime', 'diagnostics'] as DeveloperTab[]).map((tab) => <button type="button" key={tab} className={developerTab === tab ? 'active' : ''} onClick={() => setDeveloperTab(tab)}>{tab}</button>)}
               <button type="button" className="close-dev" onClick={() => setDeveloperOpen(false)}>×</button>
             </div>
             <div className="developer-body">
-              {developerTab === 'activity' ? (
-                workspace.activity.length ? workspace.activity.slice().reverse().map((item) => (
-                  <div className={`activity-item ${item.kind}`} key={item.id}><strong>{item.title}</strong>{item.detail ? <span>{item.detail}</span> : null}</div>
-                )) : <div className="panel-empty">Real Codex activity will appear here.</div>
-              ) : null}
+              {developerTab === 'activity' ? (workspace.activity.length ? workspace.activity.slice().reverse().map((item) => <div className={`activity-item ${item.kind}`} key={item.id}><strong>{item.title}</strong>{item.detail ? <span>{item.detail}</span> : null}</div>) : <div className="panel-empty">Real Codex activity will appear here.</div>) : null}
               {developerTab === 'files' ? (project ? <FileTree nodes={project.files} /> : <div className="panel-empty">Open a project to inspect real files.</div>) : null}
-              {developerTab === 'runtime' ? (
-                runtimeLines.length ? runtimeLines.map((line, index) => (
-                  <div className={`runtime-line ${line.stream}`} key={`${index}-${line.line}`}><span>{line.stream === 'stderr' ? '!' : '›'}</span>{line.line}</div>
-                )) : <div className="panel-empty">Runtime output will appear after the local preview starts.</div>
-              ) : null}
-              {developerTab === 'diagnostics' ? (
-                <DiagnosticsPanel running={diagnosticsRunning} runtimeInfo={codexRuntimeInfo} protocol={protocolProbe} onRun={() => void runDiagnostics()} />
-              ) : null}
+              {developerTab === 'runtime' ? (runtimeLines.length ? runtimeLines.map((line, index) => <div className={`runtime-line ${line.stream}`} key={`${index}-${line.line}`}><span>{line.stream === 'stderr' ? '!' : '›'}</span>{line.line}</div>) : <div className="panel-empty">Runtime output will appear after the local preview starts.</div>) : null}
+              {developerTab === 'diagnostics' ? <DiagnosticsPanel running={diagnosticsRunning} runtimeInfo={codexRuntimeInfo} protocol={protocolProbe} account={workspace.account} onRun={() => void runDiagnostics()} /> : null}
             </div>
           </aside>
         ) : null}
