@@ -40,7 +40,7 @@ if (!app.includes('Tell Monument what to build or change')) throw new Error('Pro
 if (!app.includes('Under the hood')) throw new Error('Progressive disclosure developer surface is missing');
 if (!app.includes('Run checks') || !app.includes('Codex wants to run a command')) throw new Error('Protocol diagnostics/approval UX is missing');
 
-for (const token of ['onServerRequest', 'respond(', 'respondError(', 'Server overloaded', "input: [{ type: 'text', text }]"]) {
+for (const token of ['onServerRequest', 'respond(', 'respondError(', '-32001', "input: [{ type: 'text', text }]"]) {
   if (!codexClient.includes(token)) throw new Error(`Codex client protocol gate missing ${token}`);
 }
 if (codexClient.includes('textElements')) throw new Error('Legacy textElements payload must not return to turn/start');
