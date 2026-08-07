@@ -52,6 +52,11 @@ export async function prepareTimeline(project: ProjectInspection): Promise<Timel
   return timelineInit(project.rootPath, timelineProjectId(project));
 }
 
+export function activeTimelineProjectRoot(projectId: string): string | null {
+  const project = activeTimelineProject;
+  return project?.id === projectId ? project.rootPath : null;
+}
+
 export async function currentTimelineTurnSerial(projectId: string, fallback: number): Promise<number | null> {
   const project = activeTimelineProject;
   if (!project || project.id !== projectId) return fallback;
