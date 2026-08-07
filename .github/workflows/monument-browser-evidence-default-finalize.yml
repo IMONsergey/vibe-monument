@@ -1,3 +1,4 @@
+# Triggered after the workflow exists on the default branch so GitHub can execute it reliably.
 name: Monument Browser Evidence Default Finalizer
 
 on:
