@@ -1,0 +1,57 @@
+name: Monument Browser Evidence Bootstrap Cleanup
+
+on:
+  push:
+    branches: [monument/browser-evidence]
+    paths:
+      - '.github/workflows/monument-browser-evidence-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: monument/browser-evidence
+
+      - name: Wait for integration and privacy checkpoints
+        run: |
+          for attempt in $(seq 1 24); do
+            git fetch origin monument/browser-evidence
+            git reset --hard origin/monument/browser-evidence
+            if grep -q '0.2.0-alpha.4' apps/desktop/package.json \
+              && grep -q 'preview_collect_browser_evidence' apps/desktop/src-tauri/src/preview_runtime.rs \
+              && grep -q 'MAX_PAYLOAD_BYTES' apps/desktop/src-tauri/src/browser_evidence.rs \
+              && grep -q 'redacted-jwt' apps/desktop/src-tauri/src/browser_evidence.rs; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Browser Evidence checkpoints did not land in time' >&2
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify current branch before cleanup
+        working-directory: apps/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+          npm run build
+
+      - name: Remove one-shot bootstrap workflows
+        run: |
+          git rm -f \
+            .github/workflows/monument-browser-evidence-bootstrap.yml \
+            .github/workflows/monument-browser-evidence-harden.yml \
+            .github/workflows/monument-browser-evidence-cleanup.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: remove Browser Evidence bootstrap workflows'
+          git push origin HEAD:monument/browser-evidence
