@@ -1,8 +1,16 @@
-import type { VerificationProgress, VerificationResult } from '../verification/controller';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  isAutoVerificationEnabled,
+  runVerification,
+  setAutoVerificationEnabled,
+  type VerificationProgress,
+  type VerificationResult,
+} from '../verification/controller';
 
 function statusLabel(progress: VerificationProgress | null, stale: boolean): string {
   if (!progress) return 'No evidence yet';
   if (stale) return 'Previous checks stale';
+  if (progress.evidence.permissionRequired) return 'Auto checks are off';
   switch (progress.evidence.status) {
     case 'running': return progress.currentScript ? `Running ${progress.currentScript}` : 'Verifying';
     case 'passed': return 'Checks passed';
@@ -41,6 +49,52 @@ export function EvidencePanel({
   const evidence = progress?.evidence ?? null;
   const resultByScript = new Map((evidence?.results ?? []).map((result) => [result.script, result]));
   const plan = evidence?.plan ?? [];
+  const automaticPlan = useMemo(() => plan.filter((item) => item.automatic), [plan]);
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoBusy, setAutoBusy] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    const projectId = evidence?.projectId;
+    if (!projectId) {
+      setAutoEnabled(false);
+      return () => { disposed = true; };
+    }
+    void isAutoVerificationEnabled(projectId).then((enabled) => {
+      if (!disposed) setAutoEnabled(enabled);
+    });
+    return () => { disposed = true; };
+  }, [evidence?.projectId, evidence?.id]);
+
+  const enableAuto = async () => {
+    if (!evidence || autoBusy) return;
+    setAutoBusy(true);
+    try {
+      await setAutoVerificationEnabled(evidence.projectId, true);
+      setAutoEnabled(true);
+      if (evidence.projectRoot && automaticPlan.length) {
+        await runVerification({
+          projectId: evidence.projectId,
+          projectRoot: evidence.projectRoot,
+          trigger: 'codex-turn',
+          turnSerial: evidence.turnSerial,
+        });
+      }
+    } finally {
+      setAutoBusy(false);
+    }
+  };
+
+  const disableAuto = async () => {
+    if (!evidence || autoBusy || evidence.status === 'running') return;
+    setAutoBusy(true);
+    try {
+      await setAutoVerificationEnabled(evidence.projectId, false);
+      setAutoEnabled(false);
+    } finally {
+      setAutoBusy(false);
+    }
+  };
 
   return (
     <div className={`evidence-panel ${stale ? 'stale' : ''}`}>
@@ -49,14 +103,40 @@ export function EvidencePanel({
           <strong>{statusLabel(progress, stale)}</strong>
           <span>Deterministic project checks, not agent confidence.</span>
         </div>
-        <button type="button" disabled={manualRunning || evidence?.status === 'running'} onClick={onRunAll}>
+        <button type="button" disabled={manualRunning || autoBusy || evidence?.status === 'running'} onClick={onRunAll}>
           {manualRunning ? 'Running…' : 'Run all checks'}
         </button>
       </div>
 
       {!evidence ? (
         <div className="evidence-empty">
-          Monument will run safe detected checks after Codex completes a turn. A completed turn alone is not proof that the product works.
+          Monument detects project checks but never runs repository scripts automatically until you explicitly allow Auto checks for that project.
+        </div>
+      ) : null}
+
+      {automaticPlan.length ? (
+        <div className={`auto-checks-row ${autoEnabled ? 'enabled' : ''}`}>
+          <div>
+            <strong>Auto checks · {autoEnabled ? 'On' : 'Off'}</strong>
+            <span>
+              {autoEnabled
+                ? `After each Codex turn Monument may run: ${automaticPlan.map((item) => item.script).join(', ')}.`
+                : `Detected ${automaticPlan.map((item) => item.script).join(', ')}. These are project scripts and require your permission.`}
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={autoBusy || evidence?.status === 'running' || (!evidence.projectRoot && !autoEnabled)}
+            onClick={() => void (autoEnabled ? disableAuto() : enableAuto())}
+          >
+            {autoBusy ? 'Saving…' : autoEnabled ? 'Disable' : 'Enable for this project'}
+          </button>
+        </div>
+      ) : null}
+
+      {evidence?.permissionRequired ? (
+        <div className="evidence-note">
+          Monument detected automatic checks but did not execute them. Enable Auto checks above, or use “Run all checks” for a one-time manual verification.
         </div>
       ) : null}
 
@@ -66,7 +146,7 @@ export function EvidencePanel({
         </div>
       ) : null}
 
-      {evidence?.status === 'no-checks' ? (
+      {evidence?.status === 'no-checks' && !evidence.permissionRequired ? (
         <div className="evidence-note">
           This project exposes no supported deterministic scripts (`typecheck`, `test`, `build`, `lint`, `check`). Monument therefore does not mark it verified.
         </div>
@@ -79,6 +159,7 @@ export function EvidencePanel({
           {plan.map((item) => {
             const result = resultByScript.get(item.script);
             const running = evidence?.status === 'running' && progress?.currentScript === item.script;
+            const awaitingPermission = Boolean(evidence?.permissionRequired && item.automatic && !result);
             return (
               <details className={`evidence-check ${result?.success ? 'passed' : result ? 'failed' : running ? 'running' : ''}`} key={item.script} open={Boolean(result && !result.success)}>
                 <summary>
@@ -88,7 +169,7 @@ export function EvidencePanel({
                     <small>{item.command}</small>
                   </div>
                   <div className="evidence-check-meta">
-                    <span>{running ? 'Running…' : result ? resultStatus(result) : item.automatic ? 'Automatic' : 'Manual'}</span>
+                    <span>{running ? 'Running…' : result ? resultStatus(result) : awaitingPermission ? 'Needs permission' : item.automatic ? 'Automatic' : 'Manual'}</span>
                     {result ? <small>{durationLabel(result.durationMs)}</small> : null}
                   </div>
                 </summary>
