@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('Auto Repair is opt-in, evidence-bounded and limited to two attempts', async () => {
+test('Auto Repair is opt-in, evidence-bounded and limited to two autonomous attempts', async () => {
   const [repair, verification, runtime, panel] = await Promise.all([
     source('src/repair/controller.ts'),
     source('src/verification/controller.ts'),
@@ -25,17 +25,20 @@ test('Auto Repair is opt-in, evidence-bounded and limited to two attempts', asyn
     'Do not delete, skip, disable, weaken, or rewrite tests',
     'Do not change package scripts, lint/typecheck configuration, or thresholds',
     'request it normally; Monument will not auto-approve it',
+    "source: 'automatic'",
   ]) {
     assert.ok(repair.includes(token), `Auto Repair controller missing ${token}`);
   }
 
   assert.ok(verification.includes('requestAutoRepairIfEnabled(evidence)'));
-  assert.ok(verification.indexOf('await persist(evidence)') < verification.indexOf('requestAutoRepairIfEnabled(evidence)'), 'failed evidence must be persisted before repair is requested');
+  assert.ok(verification.indexOf('await persistFinal(evidence)') < verification.indexOf('requestAutoRepairIfEnabled(evidence)'), 'failed evidence and Timeline quality must persist before repair is requested');
 
   for (const token of [
     'handledRepairEvidence',
     'autoRepairAttempts',
-    'request.turnSerial !== this.snapshot.turnSerial',
+    'currentTimelineTurnSerial(request.projectId, this.snapshot.turnSerial)',
+    'request.turnSerial !== currentGeneration',
+    "request.source === 'automatic'",
     'attempts >= MAX_AUTO_REPAIR_ATTEMPTS',
     'this.autoRepairAttempts.set(projectRoot, 0)',
     'this.client.startTurn(threadId, request.prompt',
@@ -44,8 +47,8 @@ test('Auto Repair is opt-in, evidence-bounded and limited to two attempts', asyn
     assert.ok(runtime.includes(token), `Codex Auto Repair runtime missing ${token}`);
   }
 
-  assert.ok(!repair.includes('acceptForSession'), 'Auto Repair controller must not grant session approvals');
-  assert.ok(!repair.includes("decision: 'accept'"), 'Auto Repair controller must not auto-approve commands or file changes');
+  assert.ok(!repair.includes('acceptForSession'), 'Repair controller must not grant session approvals');
+  assert.ok(!repair.includes("decision: 'accept'"), 'Repair controller must not auto-approve commands or file changes');
 
   for (const token of [
     'Auto repair ·',
