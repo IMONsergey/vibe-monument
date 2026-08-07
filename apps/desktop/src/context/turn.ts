@@ -30,9 +30,13 @@ async function locateSourceHints(projectRoot: string, selection: PreviewSelectio
   }).catch(() => []);
 }
 
-export async function compileTurnText(userText: string, projectRoot: string): Promise<string> {
+export async function compileTurnText(
+  userText: string,
+  projectRoot: string,
+  capturedSelection: PreviewSelection | null | undefined = undefined,
+): Promise<string> {
   const text = userText.trim();
-  const selection = getPreviewSelection();
+  const selection = capturedSelection === undefined ? getPreviewSelection() : capturedSelection;
   if (!selection) return text;
   const hints = await locateSourceHints(projectRoot, selection);
   return [text, selectionContext(selection), sourceHintContext(hints)].filter(Boolean).join('\n\n');
