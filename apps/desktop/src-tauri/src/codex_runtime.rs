@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
@@ -40,6 +41,53 @@ fn live_info(managed: &mut ManagedCodex) -> Result<CodexRuntimeInfo, String> {
     })
 }
 
+fn first_existing(paths: impl IntoIterator<Item = PathBuf>) -> Option<String> {
+    paths
+        .into_iter()
+        .find(|path| path.is_file())
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+fn resolve_codex_command(explicit: Option<String>) -> Result<String, String> {
+    if let Some(path) = explicit.filter(|value| !value.trim().is_empty()) {
+        return Ok(path);
+    }
+    if let Ok(path) = std::env::var("MONUMENT_CODEX_PATH") {
+        if !path.trim().is_empty() {
+            return Ok(path);
+        }
+    }
+
+    let mut candidates = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join("codex")));
+    }
+
+    // macOS GUI apps do not inherit shell dotfile PATH values. Include the
+    // conventional locations used by Intel Homebrew, Apple Silicon Homebrew,
+    // npm/Volta/Bun and user-local installs so a DMG-installed app can still
+    // discover the user's existing Codex CLI.
+    candidates.extend([
+        PathBuf::from("/usr/local/bin/codex"),
+        PathBuf::from("/opt/homebrew/bin/codex"),
+        PathBuf::from("/usr/bin/codex"),
+    ]);
+
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        candidates.extend([
+            home.join(".local/bin/codex"),
+            home.join(".cargo/bin/codex"),
+            home.join(".volta/bin/codex"),
+            home.join(".npm-global/bin/codex"),
+            home.join(".bun/bin/codex"),
+        ]);
+    }
+
+    first_existing(candidates).ok_or_else(|| {
+        "Codex CLI was not found. Install Codex or set MONUMENT_CODEX_PATH. Monument checked the current PATH plus /usr/local/bin, /opt/homebrew/bin and common user-local install locations.".to_string()
+    })
+}
+
 #[tauri::command]
 pub fn codex_start(
     app: AppHandle,
@@ -56,10 +104,7 @@ pub fn codex_start(
     }
 
     let options = options.unwrap_or_default();
-    let command_name = options
-        .codex_path
-        .or_else(|| std::env::var("MONUMENT_CODEX_PATH").ok())
-        .unwrap_or_else(|| "codex".to_string());
+    let command_name = resolve_codex_command(options.codex_path)?;
 
     let mut command = Command::new(&command_name);
     command
@@ -71,7 +116,7 @@ pub fn codex_start(
         command.env("CODEX_HOME", codex_home);
     }
 
-    let mut child = command.spawn().map_err(|error| format!("Failed to start Codex: {error}"))?;
+    let mut child = command.spawn().map_err(|error| format!("Failed to start Codex at {command_name}: {error}"))?;
     let stdin = child.stdin.take().ok_or_else(|| "Codex stdin unavailable".to_string())?;
     let stdout = child.stdout.take().ok_or_else(|| "Codex stdout unavailable".to_string())?;
     let stderr = child.stderr.take().ok_or_else(|| "Codex stderr unavailable".to_string())?;
