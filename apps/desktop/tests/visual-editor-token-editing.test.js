@@ -42,6 +42,20 @@ test('token transaction engine proves ownership and keeps writes bounded and ato
   assert.ok(!tokenTransaction.includes('bash -c'));
 });
 
+test('responsive and conditional token ownership never gains direct write authority', () => {
+  assert.ok(tokenTransaction.includes('conditional: bool'));
+  assert.ok(tokenTransaction.includes('parent_conditional'));
+  assert.ok(tokenTransaction.includes('property_candidates.iter().any(|candidate| candidate.conditional)'));
+  assert.ok(tokenTransaction.includes('Responsive/conditional CSS ownership'));
+  assert.ok(tokenTransaction.includes('if definition.public.conditional'));
+  assert.ok(tokenTransaction.includes('breakpoint-aware token authoring is not deterministic in M2.2'));
+  assert.ok(tokenTransaction.includes('responsive_property_owner_requires_codex'));
+  assert.ok(tokenTransaction.includes('conditional_token_definition_cannot_be_directly_mutated'));
+  assert.ok(tokenClient.includes('conditional: boolean'));
+  assert.ok(properties.includes('responsive/conditional token definition'));
+  assert.ok(properties.includes('They stay read-only here until breakpoint-aware authoring exists'));
+});
+
 test('token editing commands are main-webview only and separately previewed before commit', () => {
   for (const command of [
     'project_token_edit_probe',
@@ -81,6 +95,7 @@ test('Properties exposes explicit instance local global and Codex choices', () =
   assert.ok(properties.includes('probeVisualTokenEdit'));
   assert.ok(properties.includes('defaultTokenDecision'));
   assert.ok(properties.includes('tokenDecisionRequiresGlobalConfirmation'));
+  assert.ok(properties.includes('!definition.conditional'));
   assert.ok(properties.includes('disabled={!changes.length || applying || tokenLoading || globalConfirmationRequired}'));
   assert.ok(styles.includes('.property-token-card'));
   assert.ok(styles.includes('.property-token-confirm.required'));
