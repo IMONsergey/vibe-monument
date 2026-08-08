@@ -1,10 +1,11 @@
 use crate::browser_evidence::{collect_script, parse_title_payload, BROWSER_EVIDENCE_SCRIPT};
+use crate::preview_editor_script::PREVIEW_EDITOR_SCRIPT;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 
-const PREVIEW_LABEL: &str = "monument-preview";
+pub(crate) const PREVIEW_LABEL: &str = "monument-preview";
 const SELECTION_PREFIX: &str = "__MONUMENT_SELECTION__:";
 static BROWSER_EVIDENCE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -41,7 +42,7 @@ const PREVIEW_INSPECTOR_SCRIPT: &str = r#"
   }
 
   function isInspectorNode(node) {
-    return node instanceof Element && node.hasAttribute('data-monument-inspector');
+    return node instanceof Element && (node.hasAttribute('data-monument-inspector') || node.hasAttribute('data-monument-editor'));
   }
 
   function rectToStyle(node, element) {
@@ -253,7 +254,7 @@ pub async fn preview_open(app: tauri::AppHandle, url: String, bounds: PreviewBou
     let event_app = app.clone();
 
     let builder = tauri::webview::WebviewBuilder::new(PREVIEW_LABEL, WebviewUrl::External(parsed))
-        .initialization_script(format!("{PREVIEW_INSPECTOR_SCRIPT}\n{BROWSER_EVIDENCE_SCRIPT}"))
+        .initialization_script(format!("{PREVIEW_INSPECTOR_SCRIPT}\n{PREVIEW_EDITOR_SCRIPT}\n{BROWSER_EVIDENCE_SCRIPT}"))
         .on_navigation(move |candidate| same_origin(&allowed_origin, candidate))
         .on_document_title_changed(move |_webview, title| {
             if let Some(json) = title.strip_prefix(SELECTION_PREFIX) {

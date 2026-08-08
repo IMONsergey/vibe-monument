@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "preview-editor-capability",
+  "description": "Data-only bridge from the loopback live preview into Monument's visual editor. No filesystem, process, Git, Codex or system permissions.",
+  "local": false,
+  "webviews": ["monument-preview"],
+  "remote": {
+    "urls": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*",
+      "https://localhost:*/*",
+      "https://127.0.0.1:*/*"
+    ]
+  },
+  "platforms": ["macOS"],
+  "permissions": ["allow-preview-editor-emit"]
+}

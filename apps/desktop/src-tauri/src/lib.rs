@@ -2,6 +2,8 @@ mod browser_evidence;
 mod codex_runtime;
 mod git_ship;
 mod persistence;
+mod preview_editor_bridge;
+mod preview_editor_script;
 mod preview_runtime;
 mod process_runtime;
 mod project_runtime;
@@ -21,6 +23,7 @@ mod timeline_git_contract_tests;
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use git_ship::{git_ship_commit, git_ship_plan};
 use persistence::{state_get, state_set};
+use preview_editor_bridge::{preview_editor_emit, preview_editor_hover, preview_editor_request_tree, preview_editor_select, preview_editor_set_active, PreviewEditorBridgeRuntime};
 use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_collect_browser_evidence, preview_install_browser_evidence, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
 use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
@@ -41,6 +44,7 @@ pub fn run() {
         .manage(Mutex::new(CodexRuntime::default()))
         .manage(Mutex::new(ProcessRuntime::default()))
         .manage(Mutex::new(TimelineRuntime::default()))
+        .manage(Mutex::new(PreviewEditorBridgeRuntime::default()))
         .invoke_handler(tauri::generate_handler![
             codex_start,
             codex_send,
@@ -61,6 +65,11 @@ pub fn run() {
             preview_clear_browser_evidence,
             preview_reload,
             preview_close,
+            preview_editor_emit,
+            preview_editor_set_active,
+            preview_editor_request_tree,
+            preview_editor_select,
+            preview_editor_hover,
             verification_plan,
             verification_run,
             timeline_init,
