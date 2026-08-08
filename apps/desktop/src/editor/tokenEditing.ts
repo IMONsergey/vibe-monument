@@ -11,6 +11,7 @@ export interface VisualTokenDefinition {
   value: string;
   scope: TokenDefinitionScope;
   selectedScope: boolean;
+  conditional: boolean;
 }
 
 export interface VisualTokenEditSource {
@@ -19,6 +20,7 @@ export interface VisualTokenEditSource {
   selector: string;
   property: string;
   sourceValue: string;
+  conditional: boolean;
 }
 
 export interface VisualTokenEditProbe {
@@ -112,7 +114,9 @@ export function tokenDecisionKey(decision: VisualTokenEditDecision): string {
 export function defaultTokenDecision(probe: VisualTokenEditProbe): VisualTokenEditDecision {
   if (probe.truncated) return { mode: 'codex' };
   if (probe.instanceEligible) return { mode: 'instance' };
-  const local = probe.definitions.find((definition) => definition.scope === 'scoped' && definition.selectedScope);
+  const local = probe.definitions.find((definition) =>
+    !definition.conditional && definition.scope === 'scoped' && definition.selectedScope,
+  );
   if (local) return { mode: 'token', definition: local, confirmSharedGlobal: false };
   return { mode: 'codex' };
 }
