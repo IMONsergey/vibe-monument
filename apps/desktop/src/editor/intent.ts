@@ -5,6 +5,7 @@ import {
   loadPromptQueue,
   setPromptQueuePaused,
 } from '../queue/controller';
+import { checkpointVisualSourceTransaction } from '../timeline/controller';
 import { markSourceTransactionDirty } from './transactionState';
 import type { EditorSelection } from './types';
 
@@ -27,6 +28,8 @@ export interface VisualEditApplyResult {
   paused: boolean;
   appliedCount: number;
   sourcePath: string | null;
+  checkpointId: string | null;
+  turnSerial: number | null;
   reason: string;
 }
 
@@ -96,6 +99,19 @@ function transactionSelection(selection: EditorSelection): { id: string | null; 
   };
 }
 
+function directTransactionTitle(selection: EditorSelection, changes: VisualPropertyChange[]): string {
+  const target = selection.accessibleName || selection.text || selection.tag;
+  const properties = changes.slice(0, 3).map((change) => change.property).join(', ');
+  return `Visual edit · ${target}${properties ? ` · ${properties}` : ''}`;
+}
+
+function directTransactionDetail(path: string, changes: VisualPropertyChange[]): string {
+  return [
+    `Direct deterministic source transaction in ${path}.`,
+    ...changes.slice(0, MAX_CHANGES).map((change) => `${change.property}: ${change.before || '[unset]'} → ${change.after}`),
+  ].join(' · ');
+}
+
 async function directSourcePlan(
   projectPath: string,
   selection: EditorSelection,
@@ -158,11 +174,18 @@ export async function applyVisualPropertyEdit(
     const committed = await commitDirectSourceEdit(project.rootPath, selection, bounded);
     markSourceTransactionDirty(project.id);
     await markBrowserEvidenceStale(project.id).catch(() => undefined);
+    const checkpoint = await checkpointVisualSourceTransaction({
+      project,
+      title: directTransactionTitle(selection, bounded),
+      detail: directTransactionDetail(committed.path, bounded),
+    });
     window.dispatchEvent(new CustomEvent('monument:source-transaction', {
       detail: {
         projectId: project.id,
         path: committed.path,
         appliedCount: committed.appliedCount,
+        checkpointId: checkpoint.id,
+        turnSerial: checkpoint.turnSerial,
       },
     }));
     return {
@@ -172,6 +195,8 @@ export async function applyVisualPropertyEdit(
       paused: false,
       appliedCount: committed.appliedCount,
       sourcePath: committed.path,
+      checkpointId: checkpoint.id,
+      turnSerial: checkpoint.turnSerial,
       reason: plan.reason,
     };
   }
@@ -184,6 +209,8 @@ export async function applyVisualPropertyEdit(
     paused: queued.paused,
     appliedCount: 0,
     sourcePath: null,
+    checkpointId: null,
+    turnSerial: null,
     reason: plan.reason,
   };
 }
