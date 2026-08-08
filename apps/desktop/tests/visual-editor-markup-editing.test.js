@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 const jsx = await readFile(new URL('../src-tauri/src/jsx_source.rs', import.meta.url), 'utf8');
 const markup = await readFile(new URL('../src-tauri/src/markup_transaction_v2.rs', import.meta.url), 'utf8');
+const guard = await readFile(new URL('../src-tauri/src/markup_conflict_guard.rs', import.meta.url), 'utf8');
 const tauriLib = await readFile(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
 const tauriBuild = await readFile(new URL('../src-tauri/build.rs', import.meta.url), 'utf8');
 const capability = await readFile(new URL('../src-tauri/capabilities/main-capability.json', import.meta.url), 'utf8');
@@ -30,11 +31,13 @@ test('bounded JSX scanner excludes lexical false positives and ambiguous slash s
   assert.ok(!jsx.includes('Regex::'));
 });
 
-test('only hardened markup v2 is compiled and commands stay privileged-main only', () => {
+test('only hardened markup v2 and the independent conflict guard are compiled and main-only', () => {
   assert.ok(tauriLib.includes('mod markup_transaction_v2;'));
+  assert.ok(tauriLib.includes('mod markup_conflict_guard;'));
   assert.ok(!tauriLib.includes('mod markup_transaction;'));
   for (const command of [
     'project_markup_edit_probe',
+    'project_markup_conflict_guard',
     'project_markup_transaction_preview',
     'project_markup_transaction_commit',
   ]) {
@@ -60,7 +63,7 @@ test('markup ownership is bounded to one literal real DOM source owner', () => {
   ]) assert.ok(markup.includes(token), `markup ownership contract missing ${token}`);
 });
 
-test('Tailwind direct editing proves semantics and refuses variants theme values and shorthand conflicts', () => {
+test('Tailwind direct editing proves semantics and refuses variants theme values and first-order shorthand conflicts', () => {
   for (const token of [
     'literal-tailwind-utility',
     'static literal className/class',
@@ -77,6 +80,29 @@ test('Tailwind direct editing proves semantics and refuses variants theme values
     'responsive_variant_blocks_base_edit',
   ]) assert.ok(markup.includes(token), `Tailwind contract missing ${token}`);
   assert.ok(!markup.includes('Regex'));
+});
+
+test('independent native guard catches Tailwind multi-property competitors', () => {
+  for (const token of [
+    'multi_property_conflict',
+    'size-',
+    'place-items-',
+    'place-content-',
+    'sr-only',
+    'not-sr-only',
+    'truncate',
+    'line-clamp-',
+    'container',
+    'table-caption',
+    'list-item',
+    'size_utility_conflicts_with_width_and_height_owner',
+    'place_shorthands_conflict_with_alignment_owner',
+    'accessibility_and_text_helpers_conflict_with_multiple_properties',
+    'full_display_family_is_counted_as_competing_ownership',
+  ]) assert.ok(guard.includes(token), `Tailwind conflict guard missing ${token}`);
+  assert.ok(!guard.includes('Regex'));
+  assert.ok(!guard.includes('sh -c'));
+  assert.ok(!guard.includes('bash -c'));
 });
 
 test('JSX inline style direct editing refuses dynamic ownership and outranks Tailwind', () => {
@@ -107,15 +133,31 @@ test('markup writes are stale-source guarded, root-contained and atomic', () => 
   assert.ok(!markup.includes('bash -c'));
 });
 
-test('inline style cascade is established before stylesheet-vs-Tailwind precedence', () => {
-  const markupProbe = client.indexOf('const markup = await nativeMarkupProbe');
-  const inlineDecision = client.indexOf("markup.operation?.lane === 'jsx-style'");
-  const inlineBlocker = client.indexOf('inlineStyleBlocksStylesheetFallback(markup)');
-  const cssProbe = client.indexOf('const cssPlan = await competingCssOwnership');
-  assert.ok(markupProbe >= 0 && inlineDecision > markupProbe && inlineBlocker > inlineDecision);
-  assert.ok(cssProbe > inlineBlocker);
+test('frontend cascade and Tailwind conflict proof fail closed', () => {
+  for (const token of [
+    'nativeMarkupProbe',
+    'inlineStyleBlocksStylesheetFallback',
+    "markup.operation?.lane === 'jsx-style'",
+    'competingCssOwnership',
+    'CSS ownership preflight unavailable:',
+    'nativeTailwindConflictGuard',
+    "'project_markup_conflict_guard'",
+    'Tailwind conflict guard unavailable:',
+    'validateTailwindDirectLane',
+    'exactDirectProbe',
+  ]) assert.ok(client.includes(token), `markup routing contract missing ${token}`);
   assert.ok(client.includes("cssPlan.mode !== 'codex'"));
-  assert.ok(client.includes('CSS ownership is present or could not be excluded safely.'));
+});
+
+test('dry-run and commit both re-run exact native ownership plus conflict proof', () => {
+  const preview = client.indexOf('export async function previewVisualMarkupTransaction');
+  const commit = client.indexOf('export async function commitVisualMarkupTransaction');
+  assert.ok(preview >= 0);
+  assert.ok(commit > preview);
+  assert.ok(client.indexOf('const exact = await exactDirectProbe', preview) > preview);
+  assert.ok(client.indexOf('const exact = await exactDirectProbe', commit) > commit);
+  assert.ok(client.indexOf("'project_markup_transaction_preview'", preview) > preview);
+  assert.ok(client.indexOf("'project_markup_transaction_commit'", commit) > commit);
 });
 
 test('Properties exposes exact source lane, Codex escape hatch and preserves token truncation safety', () => {
