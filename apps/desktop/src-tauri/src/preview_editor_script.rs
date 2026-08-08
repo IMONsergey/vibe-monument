@@ -5,6 +5,7 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
 
   const MAX_LAYERS = 600;
   const MAX_DEPTH = 18;
+  const MAX_DIRECT_TEXT = 1200;
   const idByElement = new WeakMap();
   const elementById = new Map();
   let nextId = 1;
@@ -116,14 +117,17 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
     return raw.slice(0, limit);
   }
 
-  function directText(element) {
-    const text = [...element.childNodes]
+  function directTextRaw(element) {
+    return [...element.childNodes]
       .filter((node) => node.nodeType === Node.TEXT_NODE)
       .map((node) => node.textContent || '')
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
-    return text.slice(0, 180);
+  }
+
+  function directText(element) {
+    return directTextRaw(element).slice(0, 180);
   }
 
   function accessibleName(element) {
@@ -173,12 +177,13 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     const tag = element.tagName.toLowerCase();
+    const rawDirectText = directTextRaw(element);
     return {
       id: nodeId(element), parentId, depth, tag,
       kind: kindOf(element, style),
       role: element.getAttribute('role'),
       name: accessibleName(element),
-      text: directText(element),
+      text: rawDirectText.slice(0, 180),
       selector: selectorFor(element),
       classes: [...element.classList].slice(0, 8),
       rect: rectPayload(rect),
@@ -186,7 +191,7 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
       display: style.display,
       position: style.position,
       editable: {
-        text: Boolean(directText(element)),
+        text: rawDirectText.length > 0 && rawDirectText.length <= MAX_DIRECT_TEXT,
         media: tag === 'img' || tag === 'video',
         layout: element.children.length > 0 || style.display.includes('flex') || style.display.includes('grid'),
         style: true,
@@ -231,8 +236,11 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     const parent = element.parentElement;
+    const rawDirectText = directTextRaw(element);
     return {
       nodeId: nodeId(element),
+      directText: rawDirectText.slice(0, MAX_DIRECT_TEXT),
+      directTextTruncated: rawDirectText.length > MAX_DIRECT_TEXT,
       url: location.href,
       viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
       tag: element.tagName.toLowerCase(),
