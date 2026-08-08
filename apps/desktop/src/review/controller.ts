@@ -60,6 +60,7 @@ export interface FreshReviewRecord {
   projectRoot: string;
   checkpointId: string;
   parentCheckpointId: string;
+  /** Codex provenance only. checkpointId is source identity. */
   turnSerial: number | null;
   status: FreshReviewStatus;
   summary: string;
@@ -234,9 +235,13 @@ function qualityStatus(record: FreshReviewRecord): Exclude<TimelineReviewStatus,
 async function persistAndQuality(record: FreshReviewRecord): Promise<void> {
   emit(record.projectId, record);
   await persist(record);
-  if (record.turnSerial != null && record.turnSerial > 0) {
-    await recordTimelineReviewQuality(record.projectId, record.turnSerial, qualityStatus(record), record.id).catch(() => undefined);
-  }
+  await recordTimelineReviewQuality(
+    record.projectId,
+    record.checkpointId,
+    record.turnSerial,
+    qualityStatus(record),
+    record.id,
+  ).catch(() => undefined);
 }
 
 export function subscribeFreshReview(projectId: string, listener: Listener): () => void {
