@@ -101,7 +101,10 @@ function normalizeTree(value: unknown): EditorTreeSnapshot | null {
     },
     nodes: normalized,
     rootIds: Array.isArray(source.rootIds)
-      ? source.rootIds.map(validNodeId).filter((id): id is string => Boolean(id) && ids.has(id)).slice(0, MAX_LAYERS)
+      ? source.rootIds.flatMap((value) => {
+          const id = validNodeId(value);
+          return id && ids.has(id) ? [id] : [];
+        }).slice(0, MAX_LAYERS)
       : normalized.filter((node) => !node.parentId).map((node) => node.id),
     truncated: source.truncated === true || source.nodes.length > MAX_LAYERS,
   };
@@ -191,6 +194,7 @@ export async function startVisualEditorBridge(): Promise<() => void> {
 
 export async function setVisualEditorActive(active: boolean): Promise<void> {
   publish({ active });
+  if (active) await invokeNative<void>('preview_set_inspect', { enabled: false }).catch(() => undefined);
   await invokeNative<void>('preview_editor_set_active', { enabled: active });
   if (active) await requestEditorTree();
   else publish({ hoveredNodeId: null });
