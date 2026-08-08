@@ -114,7 +114,7 @@ if (reviewRuntime.includes('danger-full-access') || reviewRuntime.includes('work
 for (const token of ['MAX_REVIEW_PATCH_BYTES', 'timeline_review_packet', '&parent.commit_sha', '&current.commit_sha', 'patch_truncated']) {
   if (!reviewDiff.includes(token)) throw new Error(`Fresh Review exact-generation diff missing ${token}`);
 }
-for (const token of ['checkpointId', 'waiveFinding', 'blocker', 'requestReviewFindingRepair', 'recordTimelineReviewQuality']) {
+for (const token of ['checkpointId', 'waiveFreshReviewFinding', 'blocker', 'requestFreshReviewFindingRepair', 'recordTimelineReviewQuality']) {
   if (!reviewController.includes(token)) throw new Error(`Fresh Review frontend contract missing ${token}`);
 }
 for (const token of ['evaluateShipGate', 'Deterministic checks', 'Browser evidence', 'Fresh Review', 'Pending work', 'blockingCount']) {
