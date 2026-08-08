@@ -116,7 +116,7 @@ function dispatchRepair(detail: AutoRepairRequest): boolean {
 }
 
 export function requestVerificationRepair(evidence: VerificationEvidence): boolean {
-  if (evidence.status !== 'failed' || evidence.turnSerial <= 0) return false;
+  if (evidence.status !== 'failed' || evidence.turnSerial === 0) return false;
   return dispatchRepair({
     projectId: evidence.projectId,
     projectRoot: evidence.projectRoot,
@@ -146,7 +146,7 @@ export async function requestBrowserRepair(record: BrowserEvidenceRecord): Promi
 }
 
 export async function requestAutoRepairIfEnabled(evidence: VerificationEvidence): Promise<boolean> {
-  if (evidence.trigger !== 'codex-turn' || evidence.status !== 'failed') return false;
+  if ((evidence.trigger !== 'codex-turn' && evidence.trigger !== 'visual-edit') || evidence.status !== 'failed' || evidence.turnSerial === 0) return false;
   if (!(await isAutoRepairEnabled(evidence.projectId))) return false;
   return dispatchRepair({
     projectId: evidence.projectId,
