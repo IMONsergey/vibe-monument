@@ -137,7 +137,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
     <section className="property-token-card">
       <div className="property-token-head">
         <div><span className="property-token-badge">Token-backed</span><strong>{probe.token}</strong></div>
-        <span>{probe.usageCount} usage{probe.usageCount === 1 ? '' : 's'}</span>
+        <span>{probe.usageCount} source ref{probe.usageCount === 1 ? '' : 's'}</span>
       </div>
       <div className="property-token-source">
         <code>{probe.source?.path}:{probe.source?.line}</code>
@@ -153,7 +153,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
           onClick={() => onDecision({ mode: 'instance' })}
         >
           <strong>This element</strong>
-          <span>Detach from {probe.token} and write a literal only in the proven selected rule.</span>
+          <span>Requires a unique live ID plus an ID-owned source rule. Detach only that proven instance from {probe.token}.</span>
         </button>
 
         {localDefinitions.map((definition) => {
@@ -181,7 +181,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
               onClick={() => onDecision(next)}
             >
               <strong>Global token</strong>
-              <span>{definition.path}:{definition.line} · affects up to {probe.usageCount} proven usage{probe.usageCount === 1 ? '' : 's'}</span>
+              <span>{definition.path}:{definition.line} · {probe.usageCount} bounded source ref{probe.usageCount === 1 ? '' : 's'} observed</span>
             </button>
           );
         })}
@@ -202,7 +202,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
         </div>
       ) : null}
 
-      {selectedDefinition?.scope === 'global' && probe.usageCount > 1 ? (
+      {selectedDefinition?.scope === 'global' ? (
         <label className={`property-token-confirm ${globalConfirmationRequired ? 'required' : ''}`}>
           <input
             type="checkbox"
@@ -211,7 +211,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
               if (decision.mode === 'token') onDecision({ ...decision, confirmSharedGlobal: event.target.checked });
             }}
           />
-          <span>I understand this changes the shared token for {probe.usageCount} proven usage{probe.usageCount === 1 ? '' : 's'}.</span>
+          <span>I understand this changes a global token. The bounded scans currently observe {probe.usageCount} source ref{probe.usageCount === 1 ? '' : 's'}; live impact may be broader through cascade and inheritance.</span>
         </label>
       ) : null}
 
@@ -320,7 +320,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
   const textEditable = canEditText(selection, layer);
   const applyStatus = applyMessage
     || (tokenLoading ? 'Inspecting token ownership…'
-      : globalConfirmationRequired ? `Confirm shared ${tokenProbe?.token || 'token'} blast radius`
+      : globalConfirmationRequired ? `Confirm global ${tokenProbe?.token || 'token'} scope`
         : tokenProbe ? 'Choose a safe source scope, then apply'
           : changes.length ? 'Ready to update real source' : 'Edit a property above');
 
@@ -377,7 +377,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
 
         <section className="property-source-note">
           <strong>Source-authoritative editing</strong>
-          <span>Literal owners apply atomically. Token-backed values expose instance/local/global scope and blast radius before mutation. Responsive/conditional, ambiguous, structural or unsupported edits keep the normal Codex fallback. Every direct edit becomes a Version Timeline generation and invalidates prior evidence.</span>
+          <span>Literal owners apply atomically. Token-backed values expose unique-instance/local/global scope and bounded source-reference blast radius before mutation. Responsive/conditional, ambiguous, structural or unsupported edits keep the normal Codex fallback. Every direct edit becomes a Version Timeline generation and invalidates prior evidence.</span>
         </section>
       </div>
 
