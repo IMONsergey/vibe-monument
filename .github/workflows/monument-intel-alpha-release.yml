@@ -78,7 +78,8 @@ jobs:
       - name: Build Intel DMG explicitly
         run: |
           echo build > /tmp/monument-release-stage
-          npx tauri build --target x86_64-apple-darwin --bundles dmg
+          set -o pipefail
+          npx tauri build --target x86_64-apple-darwin --bundles dmg 2>&1 | tee /tmp/monument-build.log
           DMG="$(find src-tauri/target/x86_64-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print | head -n 1)"
           test -n "$DMG"
           cp "$DMG" "$GITHUB_WORKSPACE/$RELEASE_ASSET"
@@ -184,17 +185,25 @@ jobs:
         if: failure()
         run: |
           python3 - <<'PY'
-          import json, os
+          import json, os, re
           from pathlib import Path
           stage_file = Path('/tmp/monument-release-stage')
           stage = stage_file.read_text().strip() if stage_file.exists() else 'setup'
-          Path('/tmp/monument-intel-alpha.json').write_text(json.dumps({
+          marker = {
               'status': 'failed',
               'version': os.environ['MONUMENT_VERSION'],
               'architecture': 'x86_64-apple-darwin',
               'runner': 'macos-15-intel',
               'failed_stage': stage
-          }, indent=2) + '\n')
+          }
+          log = Path('/tmp/monument-build.log')
+          if stage == 'build' and log.exists():
+              text = log.read_text(errors='replace')
+              text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', text)
+              lines = [line[-800:] for line in text.splitlines() if line.strip()][-35:]
+              tail = '\n'.join(lines)
+              marker['failure_tail'] = tail[-6000:]
+          Path('/tmp/monument-intel-alpha.json').write_text(json.dumps(marker, indent=2) + '\n')
           PY
 
       - name: Persist release marker to main
