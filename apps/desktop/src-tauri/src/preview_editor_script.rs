@@ -86,6 +86,15 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
     return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
   }
 
+  function uniqueId(element) {
+    if (!(element instanceof Element) || !element.id) return false;
+    try {
+      return document.querySelectorAll(`#${cssEscape(element.id)}`).length === 1;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function selectorFor(element) {
     if (!(element instanceof Element)) return '';
     if (element.id) return `#${cssEscape(element.id)}`;
@@ -245,6 +254,7 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
       viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
       tag: element.tagName.toLowerCase(),
       id: element.id || null,
+      idUnique: uniqueId(element),
       classes: [...element.classList].slice(0, 12),
       role: element.getAttribute('role'),
       accessibleName: accessibleName(element),

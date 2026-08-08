@@ -3,6 +3,7 @@ export interface PreviewSelection {
   viewport: { width?: number; height?: number; dpr?: number };
   tag: string;
   id?: string | null;
+  idUnique?: boolean;
   classes: string[];
   role?: string | null;
   accessibleName?: string | null;
@@ -29,11 +30,13 @@ export function normalizePreviewSelection(selection: PreviewSelection): PreviewS
   const viewport = selection.viewport || {};
   const rect = selection.rect || {};
   const parent = selection.parent || null;
+  const id = clipped(selection.id, 180) || null;
   return {
     url: clipped(selection.url, 2048),
     viewport: { width: number(viewport.width), height: number(viewport.height), dpr: number(viewport.dpr) },
     tag: clipped(selection.tag, 32).toLowerCase() || 'element',
-    id: clipped(selection.id, 180) || null,
+    id,
+    idUnique: Boolean(id && selection.idUnique === true),
     classes: Array.isArray(selection.classes)
       ? selection.classes.filter((value): value is string => typeof value === 'string').slice(0, 12).map((value) => clipped(value, 80))
       : [],
@@ -85,7 +88,7 @@ export function selectionContext(selection: PreviewSelection): string {
     `URL: ${normalized.url}`,
     `Viewport: ${finite(normalized.viewport.width)}×${finite(normalized.viewport.height)} @ ${finite(normalized.viewport.dpr)}x`,
     `Element: <${normalized.tag}>${normalized.role ? ` role=${normalized.role}` : ''}`,
-    normalized.id ? `ID: ${normalized.id}` : '',
+    normalized.id ? `ID: ${normalized.id}${normalized.idUnique ? ' (unique in live document)' : ''}` : '',
     normalized.classes.length ? `Classes: ${normalized.classes.join(' ')}` : '',
     normalized.accessibleName ? `Accessible name: ${normalized.accessibleName}` : '',
     normalized.text ? `Rendered text: ${normalized.text}` : '',
