@@ -13,6 +13,12 @@ import {
   recordSourceTransactionCheckpoint,
 } from './transactionState';
 import {
+  commitVisualMarkupTransaction,
+  previewVisualMarkupTransaction,
+  type VisualMarkupDecision,
+  type VisualMarkupTransactionCommit,
+} from './markupEditing';
+import {
   commitVisualTokenTransaction,
   previewVisualTokenTransaction,
   type VisualTokenEditDecision,
@@ -45,6 +51,8 @@ export interface VisualEditApplyResult {
   token: string | null;
   scope: string | null;
   affectedUsageCount: number;
+  sourceLane: 'tailwind' | 'jsx-style' | null;
+  ownerKind: string | null;
 }
 
 interface SourceTransactionPlan {
@@ -84,9 +92,7 @@ function safeChanges(changes: VisualPropertyChange[]): VisualPropertyChange[] {
 
 function instruction(selection: EditorSelection, changes: VisualPropertyChange[]): string {
   const safe = safeChanges(changes);
-
   if (!safe.length) throw new Error('No visual property changes to apply.');
-
   return [
     '[Monument Visual Editor property edit]',
     '',
@@ -113,11 +119,11 @@ function transactionSelection(selection: EditorSelection): { id: string | null; 
   };
 }
 
-function directTransactionTitle(selection: EditorSelection, changes: VisualPropertyChange[], token?: string | null): string {
+function directTransactionTitle(selection: EditorSelection, changes: VisualPropertyChange[], suffix?: string | null): string {
   const target = selection.accessibleName || selection.text || selection.tag;
   const properties = changes.slice(0, 3).map((change) => change.property).join(', ');
-  const tokenLabel = token ? ` · ${token}` : '';
-  return `Visual edit · ${target}${properties ? ` · ${properties}` : ''}${tokenLabel}`;
+  const label = suffix ? ` · ${suffix}` : '';
+  return `Visual edit · ${target}${properties ? ` · ${properties}` : ''}${label}`;
 }
 
 function directTransactionDetail(path: string, changes: VisualPropertyChange[], prefix = 'Direct deterministic source transaction'): string {
@@ -155,11 +161,13 @@ async function finishDirectVisualEdit(input: {
   project: Awaited<ReturnType<typeof inspectProject>>;
   selection: EditorSelection;
   changes: VisualPropertyChange[];
-  commit: SourceTransactionCommit | VisualTokenTransactionCommit;
+  commit: SourceTransactionCommit | VisualTokenTransactionCommit | VisualMarkupTransactionCommit;
   reason: string;
   token?: string | null;
   scope?: string | null;
   affectedUsageCount?: number;
+  sourceLane?: 'tailwind' | 'jsx-style' | null;
+  ownerKind?: string | null;
 }): Promise<VisualEditApplyResult> {
   const { project, selection, changes, commit, reason } = input;
   markSourceTransactionDirty(project.id);
@@ -167,12 +175,16 @@ async function finishDirectVisualEdit(input: {
   const token = input.token ?? ('token' in commit ? commit.token : null);
   const scope = input.scope ?? ('scope' in commit ? commit.scope : null);
   const affectedUsageCount = input.affectedUsageCount ?? ('affectedUsageCount' in commit ? commit.affectedUsageCount : 1);
+  const sourceLane = input.sourceLane ?? ('lane' in commit ? commit.lane : null);
+  const ownerKind = input.ownerKind ?? ('ownerKind' in commit ? commit.ownerKind : null);
   const detailPrefix = token
-    ? `Direct ${scope || 'token'} source transaction for ${token}; blast radius ${affectedUsageCount}`
-    : 'Direct deterministic source transaction';
+    ? `Direct ${scope || 'token'} source transaction for ${token}; source refs ${affectedUsageCount}`
+    : sourceLane
+      ? `Direct ${sourceLane} transaction · ${ownerKind || 'static source owner'}`
+      : 'Direct deterministic source transaction';
   const checkpoint = await checkpointVisualSourceTransaction({
     project,
-    title: directTransactionTitle(selection, changes, token),
+    title: directTransactionTitle(selection, changes, token || sourceLane),
     detail: directTransactionDetail(commit.path, changes, detailPrefix),
   });
   if (checkpoint.turnSerial == null || checkpoint.turnSerial === 0) {
@@ -189,6 +201,8 @@ async function finishDirectVisualEdit(input: {
       token,
       scope,
       affectedUsageCount,
+      sourceLane,
+      ownerKind,
     },
   }));
   return {
@@ -204,6 +218,8 @@ async function finishDirectVisualEdit(input: {
     token,
     scope,
     affectedUsageCount,
+    sourceLane,
+    ownerKind,
   };
 }
 
@@ -226,6 +242,8 @@ async function codexResult(
     token: null,
     scope: null,
     affectedUsageCount: 0,
+    sourceLane: null,
+    ownerKind: null,
   };
 }
 
@@ -238,9 +256,6 @@ export async function queueVisualPropertyEdit(
   const project = await inspectProject(projectPath);
   const before = await loadPromptQueue(project.id, false);
   await enqueuePrompt(project.id, instruction(selection, changes), selection, null);
-
-  // A user-initiated Apply should run immediately when there was no deliberately-paused backlog.
-  // If the user paused an existing queue, preserve that decision and add this edit to the backlog.
   const shouldResume = !before.paused || before.items.length === 0;
   const after = shouldResume ? await setPromptQueuePaused(project.id, false) : await loadPromptQueue(project.id, false);
   return { projectId: project.id, queuedCount: after.items.length, paused: after.paused };
@@ -250,6 +265,7 @@ export async function applyVisualPropertyEdit(
   selection: EditorSelection,
   changes: VisualPropertyChange[],
   tokenDecision?: VisualTokenEditDecision,
+  markupDecision?: VisualMarkupDecision,
 ): Promise<VisualEditApplyResult> {
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) throw new Error('Open a project before applying visual changes.');
@@ -266,9 +282,10 @@ export async function applyVisualPropertyEdit(
   if (tokenDecision?.mode === 'codex') {
     return codexResult(selection, bounded, 'User selected the source-aware Codex route for this token-backed edit.');
   }
+  if (markupDecision === 'codex') {
+    return codexResult(selection, bounded, 'JSX/Tailwind ownership requires the source-aware Codex route for this edit.');
+  }
 
-  // Every direct lane is provenance-safe only when the current working tree still matches
-  // the exact active Timeline checkpoint. Existing external/uncheckpointed changes go to Codex.
   const timelineStatus = await readTimelineStatus(project).catch(() => null);
   if (!timelineStatus) {
     return codexResult(selection, bounded, 'Version Timeline preflight is unavailable; direct source mutation cannot prove generation ownership.');
@@ -292,7 +309,6 @@ export async function applyVisualPropertyEdit(
       affectedUsageCount: 0,
     }));
     if (plan.safe) {
-      // Commit re-runs token ownership/scope resolution natively. The frontend preview is never authority.
       const committed = await commitVisualTokenTransaction(project.rootPath, selection, bounded[0], tokenDecision);
       return finishDirectVisualEdit({
         project,
@@ -308,6 +324,27 @@ export async function applyVisualPropertyEdit(
     return codexResult(selection, bounded, plan.reason);
   }
 
+  if (markupDecision === 'direct' && bounded.length === 1) {
+    const plan = await previewVisualMarkupTransaction(project.rootPath, selection, bounded[0]).catch((error) => ({
+      safe: false,
+      reason: `JSX/Tailwind transaction preflight unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      operation: null,
+    }));
+    if (plan.safe && plan.operation) {
+      const committed = await commitVisualMarkupTransaction(project.rootPath, selection, bounded[0]);
+      return finishDirectVisualEdit({
+        project,
+        selection,
+        changes: bounded,
+        commit: committed,
+        reason: plan.reason,
+        sourceLane: committed.lane,
+        ownerKind: committed.ownerKind,
+      });
+    }
+    return codexResult(selection, bounded, plan.reason);
+  }
+
   const plan: SourceTransactionPlan = await directSourcePlan(project.rootPath, selection, bounded).catch((error) => ({
     mode: 'codex' as const,
     reason: `Deterministic source resolution unavailable: ${error instanceof Error ? error.message : String(error)}`,
@@ -315,7 +352,6 @@ export async function applyVisualPropertyEdit(
   }));
 
   if (plan.mode === 'deterministic' && plan.operations.length === bounded.length) {
-    // Commit re-runs the resolver natively. The dry-run is never trusted as authority.
     const committed = await commitDirectSourceEdit(project.rootPath, selection, bounded);
     return finishDirectVisualEdit({
       project,

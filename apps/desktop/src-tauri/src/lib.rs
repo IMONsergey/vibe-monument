@@ -1,6 +1,9 @@
 mod browser_evidence;
 mod codex_runtime;
 mod git_ship;
+mod jsx_source;
+mod markup_conflict_guard;
+mod markup_transaction_hardened;
 mod persistence;
 mod preview_editor_bridge;
 mod preview_editor_script;
@@ -25,6 +28,8 @@ mod timeline_git_contract_tests;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use git_ship::{git_ship_commit, git_ship_plan};
+use markup_conflict_guard::project_markup_conflict_guard;
+use markup_transaction_hardened::{project_markup_edit_probe, project_markup_transaction_commit, project_markup_transaction_preview};
 use persistence::{state_get, state_set};
 use preview_editor_bridge::{preview_editor_emit, preview_editor_hover, preview_editor_request_tree, preview_editor_select, preview_editor_set_active, PreviewEditorBridgeRuntime};
 use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_collect_browser_evidence, preview_install_browser_evidence, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
@@ -66,6 +71,10 @@ pub fn run() {
             project_token_edit_probe,
             project_token_transaction_preview,
             project_token_transaction_commit,
+            project_markup_edit_probe,
+            project_markup_conflict_guard,
+            project_markup_transaction_preview,
+            project_markup_transaction_commit,
             runtime_start,
             runtime_status,
             runtime_stop,
