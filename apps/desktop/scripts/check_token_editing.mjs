@@ -30,6 +30,9 @@ for (const token of [
   'MAX_CSS_FILES', 'MAX_FILE_BYTES', 'MAX_TOTAL_BYTES', 'MAX_VALUE_BYTES',
   'TokenEditMode::Instance', 'TokenEditMode::Token', 'simple_var_token', 'selector_score',
   'property_candidates.len() != 1', 'selected_scope', 'confirm_shared_global',
+  'conditional: bool', 'parent_conditional', 'property_candidates.iter().any(|candidate| candidate.conditional)',
+  'Responsive/conditional CSS ownership', 'if definition.public.conditional',
+  'breakpoint-aware token authoring is not deterministic in M2.2',
   'fs::symlink_metadata', 'canonical.starts_with(&root)', '.create_new(true)', 'file.sync_all()',
   'fs::rename(&temp, path)', 'rule_blocks(&content)', 'Source changed after token transaction resolution',
 ]) {
@@ -45,6 +48,7 @@ for (const token of [
   "'project_token_transaction_commit'",
   'defaultTokenDecision',
   'tokenDecisionRequiresGlobalConfirmation',
+  'conditional: boolean',
 ]) {
   if (!tokenClient.includes(token)) throw new Error(`Token client model missing ${token}`);
 }
@@ -52,6 +56,8 @@ for (const token of [
 for (const token of [
   'Token-backed', 'Change scope', 'This element', 'Local scope', 'Global token', 'Use Codex',
   'I understand this changes the shared token', 'property-token-diff', 'Inspecting token ownership',
+  '!definition.conditional', 'responsive/conditional token definition',
+  'They stay read-only here until breakpoint-aware authoring exists',
 ]) {
   if (!properties.includes(token)) throw new Error(`Properties token UX missing ${token}`);
 }
