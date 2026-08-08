@@ -17,10 +17,45 @@ type Listener = (selection: PreviewSelection | null) => void;
 let currentSelection: PreviewSelection | null = null;
 const listeners = new Set<Listener>();
 
+function clipped(value: unknown, limit: number): string {
+  return typeof value === 'string' ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, limit) : '';
+}
+
+function number(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+export function normalizePreviewSelection(selection: PreviewSelection): PreviewSelection {
+  const viewport = selection.viewport || {};
+  const rect = selection.rect || {};
+  const parent = selection.parent || null;
+  return {
+    url: clipped(selection.url, 2048),
+    viewport: { width: number(viewport.width), height: number(viewport.height), dpr: number(viewport.dpr) },
+    tag: clipped(selection.tag, 32).toLowerCase() || 'element',
+    id: clipped(selection.id, 180) || null,
+    classes: Array.isArray(selection.classes)
+      ? selection.classes.filter((value): value is string => typeof value === 'string').slice(0, 12).map((value) => clipped(value, 80))
+      : [],
+    role: clipped(selection.role, 80) || null,
+    accessibleName: clipped(selection.accessibleName, 180) || null,
+    text: clipped(selection.text, 480),
+    selector: clipped(selection.selector, 1200),
+    rect: { x: number(rect.x), y: number(rect.y), width: number(rect.width), height: number(rect.height) },
+    parent: parent ? { tag: clipped(parent.tag, 32), selector: clipped(parent.selector, 1200) } : null,
+    styles: Object.fromEntries(
+      Object.entries(selection.styles || {})
+        .filter(([, value]) => typeof value === 'string')
+        .slice(0, 48)
+        .map(([key, value]) => [clipped(key, 80), clipped(value, 500)]),
+    ),
+  };
+}
+
 export function getPreviewSelection(): PreviewSelection | null { return currentSelection; }
 export function setPreviewSelection(selection: PreviewSelection | null): void {
-  currentSelection = selection;
-  for (const listener of listeners) listener(selection);
+  currentSelection = selection ? normalizePreviewSelection(selection) : null;
+  for (const listener of listeners) listener(currentSelection);
 }
 export function subscribePreviewSelection(listener: Listener): () => void {
   listeners.add(listener);
@@ -39,23 +74,24 @@ export function selectionLabel(selection: PreviewSelection): string {
 }
 
 export function selectionContext(selection: PreviewSelection): string {
-  const styleEntries = Object.entries(selection.styles)
-    .filter(([, value]) => typeof value === 'string' && value.length > 0)
+  const normalized = normalizePreviewSelection(selection);
+  const styleEntries = Object.entries(normalized.styles)
+    .filter(([, value]) => value.length > 0)
     .slice(0, 24)
     .map(([key, value]) => `${key}: ${value}`)
     .join('; ');
   return [
     '[Monument live element context]',
-    `URL: ${selection.url}`,
-    `Viewport: ${finite(selection.viewport.width)}×${finite(selection.viewport.height)} @ ${finite(selection.viewport.dpr)}x`,
-    `Element: <${selection.tag}>${selection.role ? ` role=${selection.role}` : ''}`,
-    selection.id ? `ID: ${selection.id}` : '',
-    selection.classes.length ? `Classes: ${selection.classes.join(' ')}` : '',
-    selection.accessibleName ? `Accessible name: ${selection.accessibleName}` : '',
-    selection.text ? `Rendered text: ${selection.text}` : '',
-    `Selector: ${selection.selector}`,
-    selection.parent?.selector ? `Parent: ${selection.parent.selector}` : '',
-    `Rect: x=${finite(selection.rect.x)}, y=${finite(selection.rect.y)}, w=${finite(selection.rect.width)}, h=${finite(selection.rect.height)}`,
+    `URL: ${normalized.url}`,
+    `Viewport: ${finite(normalized.viewport.width)}×${finite(normalized.viewport.height)} @ ${finite(normalized.viewport.dpr)}x`,
+    `Element: <${normalized.tag}>${normalized.role ? ` role=${normalized.role}` : ''}`,
+    normalized.id ? `ID: ${normalized.id}` : '',
+    normalized.classes.length ? `Classes: ${normalized.classes.join(' ')}` : '',
+    normalized.accessibleName ? `Accessible name: ${normalized.accessibleName}` : '',
+    normalized.text ? `Rendered text: ${normalized.text}` : '',
+    `Selector: ${normalized.selector}`,
+    normalized.parent?.selector ? `Parent: ${normalized.parent.selector}` : '',
+    `Rect: x=${finite(normalized.rect.x)}, y=${finite(normalized.rect.y)}, w=${finite(normalized.rect.width)}, h=${finite(normalized.rect.height)}`,
     styleEntries ? `Computed styles: ${styleEntries}` : '',
     'Treat this as observed runtime context. Locate the owning source/component in the current repository before editing; do not invent a source file from the selector alone.',
   ].filter(Boolean).join('\n');
