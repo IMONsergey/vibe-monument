@@ -1,4 +1,4 @@
-use crate::persistence;
+use crate::{persistence, review_source};
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 use std::fs::{self, File};
@@ -262,13 +262,26 @@ pub fn timeline_review_packet(
         .app_cache_dir()
         .map_err(|error| error.to_string())?
         .join("fresh-review");
-    let (patch, patch_truncated) = bounded_patch(
+    let (mut patch, patch_truncated) = bounded_patch(
         &git,
         &git_dir,
         &parent.commit_sha,
         &current.commit_sha,
         &cache,
     )?;
+    let source_context = review_source::source_context_internal(
+        &app,
+        &project_path,
+        &project_id,
+        &current.id,
+        &parent.id,
+    )?;
+    if !source_context.content.is_empty() {
+        patch.push_str("\n\n--- BEGIN MONUMENT CURRENT SOURCE CONTEXT ---\n");
+        patch.push_str(&source_context.content);
+        patch.push_str("\n--- END MONUMENT CURRENT SOURCE CONTEXT ---\n");
+        patch.push_str(&format!("\n[Monument included {} changed text source file(s)]\n", source_context.files_included));
+    }
 
     Ok(ReviewDiffPacket {
         checkpoint_id: current.id,
@@ -278,7 +291,7 @@ pub fn timeline_review_packet(
         prompt_excerpt: current.prompt_excerpt,
         files,
         patch,
-        patch_truncated,
+        patch_truncated: patch_truncated || source_context.truncated,
     })
 }
 
