@@ -1,9 +1,13 @@
 mod browser_evidence;
 mod codex_runtime;
+mod git_ship;
 mod persistence;
 mod preview_runtime;
 mod process_runtime;
 mod project_runtime;
+mod review_diff;
+mod review_runtime_v2;
+mod review_source;
 mod source_locator;
 mod system_runtime;
 mod timeline_cursor;
@@ -15,10 +19,14 @@ mod verification_runtime;
 mod timeline_git_contract_tests;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
+use git_ship::{git_ship_commit, git_ship_plan};
 use persistence::{state_get, state_set};
 use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_collect_browser_evidence, preview_install_browser_evidence, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
 use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
+use review_diff::timeline_review_packet;
+use review_runtime_v2::review_run;
+use review_source::timeline_review_source_context;
 use source_locator::project_source_hints;
 use system_runtime::system_open_external;
 use timeline_cursor::timeline_set_active_path;
@@ -63,7 +71,12 @@ pub fn run() {
             timeline_back_safe,
             timeline_forward_safe,
             timeline_diff,
+            timeline_review_packet,
+            timeline_review_source_context,
             timeline_set_active_path,
+            review_run,
+            git_ship_plan,
+            git_ship_commit,
             system_open_external,
             state_get,
             state_set

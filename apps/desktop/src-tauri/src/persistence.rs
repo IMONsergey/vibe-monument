@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub(crate) fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
@@ -42,8 +42,9 @@ pub fn state_set(app: AppHandle, key: String, value: Value) -> Result<(), String
     conn.execute(
         "INSERT INTO app_state(key, value, updated_at) VALUES (?1, ?2, unixepoch())
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()",
-        params![key, encoded],
+        params![&key, encoded],
     )
     .map_err(|error| error.to_string())?;
+    let _ = app.emit("monument://state-changed", key);
     Ok(())
 }

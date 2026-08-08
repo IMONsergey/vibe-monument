@@ -2,13 +2,16 @@ import { stateGet, stateSet } from '../host/native';
 
 export type TimelineDeterministicStatus = 'passed' | 'failed' | 'no-checks' | 'permission-required' | 'error' | 'not-run';
 export type TimelineBrowserStatus = 'clean' | 'issues' | 'not-run';
+export type TimelineReviewStatus = 'clean' | 'issues' | 'blocked' | 'error' | 'not-run';
 
 export interface TimelineQualitySummary {
   turnSerial: number;
   deterministic: TimelineDeterministicStatus;
   browser: TimelineBrowserStatus;
+  review?: TimelineReviewStatus;
   deterministicEvidenceId?: string | null;
   browserCapturedAt?: number | null;
+  reviewId?: string | null;
   updatedAt: number;
 }
 
@@ -62,6 +65,7 @@ async function patchTimelineQuality(
     turnSerial,
     deterministic: 'not-run' as const,
     browser: 'not-run' as const,
+    review: 'not-run' as const,
     updatedAt: Date.now(),
   };
   const next: TimelineQualitySummary = {
@@ -97,6 +101,18 @@ export async function recordTimelineBrowserQuality(
   return patchTimelineQuality(projectId, turnSerial, {
     browser: status,
     browserCapturedAt: capturedAt ?? null,
+  });
+}
+
+export async function recordTimelineReviewQuality(
+  projectId: string,
+  turnSerial: number,
+  status: Exclude<TimelineReviewStatus, 'not-run'>,
+  reviewId?: string | null,
+): Promise<TimelineQualitySummary> {
+  return patchTimelineQuality(projectId, turnSerial, {
+    review: status,
+    reviewId: reviewId ?? null,
   });
 }
 

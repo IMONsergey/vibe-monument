@@ -1,0 +1,32 @@
+.ship-commit-panel {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--line);
+  background: rgba(255,255,255,.74);
+}
+.ship-commit-heading { display: flex; align-items: flex-start; gap: 10px; }
+.ship-commit-heading > div { min-width: 0; display: grid; gap: 3px; }
+.ship-commit-heading strong { font-size: 10.5px; }
+.ship-commit-heading span { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.ship-remote { margin-left: auto; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 8px; font-weight: 700; color: var(--muted); }
+.ship-commit-warning, .ship-git-error { padding: 8px 9px; border: 1px solid rgba(166,66,54,.18); border-radius: 8px; background: rgba(166,66,54,.05); color: #77372f; font-size: 9px; line-height: 1.45; }
+.ship-file-list { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ship-file-list summary { padding: 7px 9px; cursor: pointer; color: var(--muted); font-size: 9px; }
+.ship-file-list > div { max-height: 126px; overflow: auto; display: grid; gap: 2px; padding: 0 9px 8px; }
+.ship-file-list code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8.5px; color: #55554f; }
+.ship-commit-message { display: grid; gap: 5px; }
+.ship-commit-message > span { color: var(--muted); font-size: 8.5px; font-weight: 650; }
+.ship-commit-message input { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 9px; background: white; color: var(--ink); outline: none; font: inherit; font-size: 10px; }
+.ship-commit-message input:focus { border-color: rgba(24,24,22,.34); box-shadow: 0 0 0 2px rgba(24,24,22,.045); }
+.ship-commit-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.ship-commit-actions button { border: 1px solid #1b1b19; border-radius: 8px; padding: 7px 10px; background: #1b1b19; color: white; cursor: pointer; font-size: 9.5px; font-weight: 650; }
+.ship-commit-actions button.secondary { border-color: var(--line-strong); background: white; color: var(--ink); }
+.ship-commit-actions button:disabled { opacity: .42; cursor: default; }
+.ship-commit-footnote { color: var(--muted-2); font-size: 8.25px; line-height: 1.45; }
+.ship-git-error { margin: 0 14px 12px; }
+.ship-commit-success { margin: 0 14px 14px; display: grid; gap: 3px; padding: 9px 10px; border: 1px solid rgba(45,121,84,.18); border-radius: 9px; background: rgba(45,121,84,.05); color: #275b43; }
+.ship-commit-success strong { font-size: 10px; }
+.ship-commit-success span { font-size: 9px; }
+.ship-commit-success small { color: var(--muted); font-size: 8px; }
