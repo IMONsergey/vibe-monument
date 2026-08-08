@@ -15,6 +15,7 @@
     "allow-project-source-hints",
     "allow-project-source-transaction-preview",
     "allow-project-source-transaction-commit",
+    "allow-project-token-scope-inspect",
     "allow-runtime-start",
     "allow-runtime-status",
     "allow-runtime-stop",
