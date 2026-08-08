@@ -5,7 +5,7 @@ mod preview_runtime;
 mod process_runtime;
 mod project_runtime;
 mod review_diff;
-mod review_runtime;
+mod review_runtime_v2;
 mod review_source;
 mod source_locator;
 mod system_runtime;
@@ -23,7 +23,7 @@ use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_col
 use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
 use review_diff::timeline_review_packet;
-use review_runtime::review_run;
+use review_runtime_v2::review_run;
 use review_source::timeline_review_source_context;
 use source_locator::project_source_hints;
 use system_runtime::system_open_external;
