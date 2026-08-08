@@ -111,7 +111,7 @@ for (const token of ['exec', '--ephemeral', '--sandbox', 'read-only', '--ignore-
   if (!reviewRuntime.includes(token)) throw new Error(`Fresh Review isolation missing ${token}`);
 }
 if (reviewRuntime.includes('danger-full-access') || reviewRuntime.includes('workspace-write')) throw new Error('Fresh Review must remain read-only');
-for (const token of ['MAX_DIFF_BYTES', 'timeline_review_packet', 'parent_commit_sha', 'current_commit_sha']) {
+for (const token of ['MAX_REVIEW_PATCH_BYTES', 'timeline_review_packet', '&parent.commit_sha', '&current.commit_sha', 'patch_truncated']) {
   if (!reviewDiff.includes(token)) throw new Error(`Fresh Review exact-generation diff missing ${token}`);
 }
 for (const token of ['checkpointId', 'waiveFinding', 'blocker', 'requestReviewFindingRepair', 'recordTimelineReviewQuality']) {
