@@ -6,6 +6,9 @@
   "scripts": {
     "prepare:icon": "node scripts/prepare_app_icon.mjs",
     "dev": "npm run prepare:icon && vite --host 127.0.0.1 --port 4173",
+    "experience:dev": "npm --prefix experience-preview run dev",
+    "experience:check": "npm --prefix experience-preview run check",
+    "experience:build": "npm --prefix experience-preview run build",
     "check": "tsc --noEmit && npm run check:native",
     "check:native": "node scripts/check_native_source.mjs && node scripts/check_token_editing.mjs && node scripts/check_markup_editing.mjs && node scripts/check_content_editing.mjs && node scripts/check_alpha_preview.mjs",
     "test": "node --test tests/*.test.js",
