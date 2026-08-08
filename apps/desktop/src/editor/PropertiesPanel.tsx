@@ -112,8 +112,13 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
   decision: VisualTokenEditDecision;
   onDecision: (decision: VisualTokenEditDecision) => void;
 }) {
-  const localDefinitions = probe.definitions.filter((definition) => definition.scope === 'scoped' && definition.selectedScope);
-  const globalDefinitions = probe.definitions.filter((definition) => definition.scope === 'global');
+  const localDefinitions = probe.definitions.filter((definition) =>
+    !definition.conditional && definition.scope === 'scoped' && definition.selectedScope,
+  );
+  const globalDefinitions = probe.definitions.filter((definition) =>
+    !definition.conditional && definition.scope === 'global',
+  );
+  const conditionalDefinitions = probe.definitions.filter((definition) => definition.conditional);
   const currentKey = tokenDecisionKey(decision);
   const selectedDefinition = decision.mode === 'token' ? decision.definition : null;
   const globalConfirmationRequired = tokenDecisionRequiresGlobalConfirmation(probe, decision);
@@ -190,6 +195,12 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
           <span>Keep the existing source-aware reasoning path for this edit.</span>
         </button>
       </div>
+
+      {conditionalDefinitions.length ? (
+        <div className="property-token-warning">
+          {conditionalDefinitions.length} responsive/conditional token definition{conditionalDefinitions.length === 1 ? '' : 's'} detected. They stay read-only here until breakpoint-aware authoring exists; use Codex for those scopes.
+        </div>
+      ) : null}
 
       {selectedDefinition?.scope === 'global' && probe.usageCount > 1 ? (
         <label className={`property-token-confirm ${globalConfirmationRequired ? 'required' : ''}`}>
@@ -366,7 +377,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
 
         <section className="property-source-note">
           <strong>Source-authoritative editing</strong>
-          <span>Literal owners apply atomically. Token-backed values expose instance/local/global scope and blast radius before mutation. Ambiguous, responsive, structural or unsupported edits keep the normal Codex fallback. Every direct edit becomes a Version Timeline generation and invalidates prior evidence.</span>
+          <span>Literal owners apply atomically. Token-backed values expose instance/local/global scope and blast radius before mutation. Responsive/conditional, ambiguous, structural or unsupported edits keep the normal Codex fallback. Every direct edit becomes a Version Timeline generation and invalidates prior evidence.</span>
         </section>
       </div>
 
