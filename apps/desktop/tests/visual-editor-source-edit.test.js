@@ -6,6 +6,9 @@ const intent = await readFile(new URL('../src/editor/intent.ts', import.meta.url
 const ownership = await readFile(new URL('../src/editor/ownership.ts', import.meta.url), 'utf8');
 const properties = await readFile(new URL('../src/editor/PropertiesPanel.tsx', import.meta.url), 'utf8');
 const layer = await readFile(new URL('../src/editor/VisualEditorLayer.tsx', import.meta.url), 'utf8');
+const editorTypes = await readFile(new URL('../src/editor/types.ts', import.meta.url), 'utf8');
+const editorController = await readFile(new URL('../src/editor/controller.ts', import.meta.url), 'utf8');
+const editorScript = await readFile(new URL('../src-tauri/src/preview_editor_script.rs', import.meta.url), 'utf8');
 
 test('visual property Apply enters the normal prompt queue instead of mutating preview styles', () => {
   assert.ok(intent.includes('enqueuePrompt(project.id, instruction(selection, changes), selection, null)'));
@@ -24,15 +27,30 @@ test('Properties exposes useful Framer-like fields but batches source edits thro
     "key: 'width', editable: true",
     "key: 'paddingTop', editable: true",
     "key: 'gap', editable: true",
+    "key: 'fontFamily', editable: true",
     "key: 'fontSize', editable: true",
     "key: 'color', editable: true",
     "key: 'backgroundColor', editable: true",
+    "key: 'border', editable: true",
     "key: 'borderRadius', editable: true",
+    "key: 'boxShadow', editable: true",
     "key: 'opacity', editable: true",
     'Source-authoritative editing',
     'property-apply-bar',
-    'onApply(changes)',
+    'await onApply(changes)',
   ]) assert.ok(properties.includes(token), `Properties contract missing ${token}`);
+});
+
+test('direct text edit is bounded, complete and disabled when runtime text was truncated', () => {
+  assert.ok(editorTypes.includes('directText: string'));
+  assert.ok(editorTypes.includes('directTextTruncated: boolean'));
+  assert.ok(editorController.includes('directText: clipped(source.directText, 1200)'));
+  assert.ok(editorController.includes('directTextTruncated: source.directTextTruncated === true'));
+  assert.ok(editorScript.includes('MAX_DIRECT_TEXT = 1200'));
+  assert.ok(editorScript.includes('directTextTruncated: rawDirectText.length > MAX_DIRECT_TEXT'));
+  assert.ok(properties.includes('!selection.directTextTruncated'));
+  assert.ok(properties.includes('selection.directText'));
+  assert.ok(properties.includes('Direct text exceeds the safe editor limit'));
 });
 
 test('source ownership is explicitly a confidence signal rather than fabricated source truth', () => {
@@ -42,4 +60,5 @@ test('source ownership is explicitly a confidence signal rather than fabricated 
   assert.ok(ownership.includes('Weak source signal'));
   assert.ok(layer.includes('locateEditorSource'));
   assert.ok(layer.includes('queueVisualPropertyEdit'));
+  assert.ok(layer.includes('Promise<boolean>'));
 });
