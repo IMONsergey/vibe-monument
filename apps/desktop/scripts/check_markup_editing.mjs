@@ -66,7 +66,8 @@ for (const token of [
 for (const token of [
   'Source-native', 'Tailwind utility', 'JSX inline style', 'Apply to source', 'Use Codex',
   'property-markup-card', 'property-markup-diff', 'probeVisualMarkupEdit',
-  'Truncated token evidence', 'Direct token mutation is disabled; Apply will use Codex.',
+  'Bounded token evidence truncated · Codex fallback required',
+  'Direct token mutation is disabled; Apply will use Codex.',
 ]) {
   if (!properties.includes(token)) throw new Error(`Properties markup/token safety UX missing ${token}`);
 }
