@@ -20,6 +20,7 @@
     "allow-project-token-transaction-preview",
     "allow-project-token-transaction-commit",
     "allow-project-markup-edit-probe",
+    "allow-project-markup-conflict-guard",
     "allow-project-markup-transaction-preview",
     "allow-project-markup-transaction-commit",
     "allow-runtime-start",
