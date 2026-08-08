@@ -46,3 +46,20 @@ test('deterministic source mutation re-plans and enforces stale-source/path boun
   assert.ok(!source.includes('regex::'));
   assert.ok(!source.includes('std::process::Command'));
 });
+
+test('literal CSS values cannot break declaration structure', () => {
+  for (const token of [
+    'fn css_value_is_balanced',
+    'ch.is_control()',
+    "'(' => parens += 1",
+    "'[' => brackets += 1",
+    'value.contains("/*")',
+    'value.contains("*/")',
+    "'\\\\' => return false",
+    'rejects_malformed_or_breakout_css_values',
+    'accepts_balanced_literal_css_values',
+    'clean_value("32px; color: red").is_err()',
+    'clean_value("32px} body { color: red").is_err()',
+    'clean_value("foo\\\\bar").is_err()',
+  ]) assert.ok(source.includes(token), `CSS literal safety contract missing ${token}`);
+});
