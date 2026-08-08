@@ -1,0 +1,103 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "name": "Monument Product Experience Foundation",
+  "version": "0.1.0-preview",
+  "source": {
+    "package": "@openai/apps-sdk-ui",
+    "packageVersion": "0.2.2",
+    "packageCategory": "OPENAI-PUBLISHED",
+    "packageLicense": "MIT",
+    "adapterCategory": "MONUMENT-DERIVED"
+  },
+  "foundation": {
+    "space": {
+      "base": { "$type": "dimension", "$value": "4px" },
+      "2": { "$type": "dimension", "$value": "8px" },
+      "3": { "$type": "dimension", "$value": "12px" },
+      "4": { "$type": "dimension", "$value": "16px" },
+      "6": { "$type": "dimension", "$value": "24px" },
+      "8": { "$type": "dimension", "$value": "32px" }
+    },
+    "radius": {
+      "control": { "$type": "dimension", "$value": "var(--radius-lg)" },
+      "menu": { "$type": "dimension", "$value": "var(--radius-xl)" },
+      "sheet": { "$type": "dimension", "$value": "var(--radius-2xl)" },
+      "composer": { "$type": "dimension", "$value": "var(--composer-radius)" }
+    },
+    "motion": {
+      "feedback": { "$type": "duration", "$value": "120ms" },
+      "enter": { "$type": "duration", "$value": "180ms" },
+      "move": { "$type": "duration", "$value": "220ms" },
+      "enterEasing": { "$type": "cubicBezier", "$value": [0.19, 1, 0.22, 1] },
+      "moveEasing": { "$type": "cubicBezier", "$value": [0.65, 0, 0.35, 1] }
+    }
+  },
+  "semantic": {
+    "surface": {
+      "workspace": { "$type": "color", "$value": "var(--color-surface-secondary)" },
+      "canvas": { "$type": "color", "$value": "var(--color-surface)" },
+      "elevated": { "$type": "color", "$value": "var(--color-surface-elevated)" },
+      "quiet": { "$type": "color", "$value": "var(--color-surface-tertiary)" }
+    },
+    "content": {
+      "primary": { "$type": "color", "$value": "var(--color-text)" },
+      "secondary": { "$type": "color", "$value": "var(--color-text-secondary)" },
+      "tertiary": { "$type": "color", "$value": "var(--color-text-tertiary)" }
+    },
+    "stroke": {
+      "subtle": { "$type": "color", "$value": "var(--color-border-subtle)" },
+      "default": { "$type": "color", "$value": "var(--color-border)" },
+      "strong": { "$type": "color", "$value": "var(--color-border-strong)" },
+      "focus": { "$type": "color", "$value": "var(--color-ring)" }
+    },
+    "accent": {
+      "selection": { "$type": "color", "$value": "var(--blue-400)" },
+      "selectionLabel": { "$type": "color", "$value": "var(--blue-600)" },
+      "selectionSoft": { "$type": "color", "$value": "var(--blue-a50)" },
+      "aiPrimary": { "$type": "color", "$value": "var(--purple-400)" },
+      "aiSecondary": { "$type": "color", "$value": "var(--blue-400)" }
+    },
+    "status": {
+      "ready": { "$type": "color", "$value": "var(--green-500)" },
+      "warning": { "$type": "color", "$value": "var(--orange-500)" },
+      "blocked": { "$type": "color", "$value": "var(--red-500)" }
+    },
+    "modes": {
+      "light": {
+        "selector": { "$type": "string", "$value": "[data-theme=light]" },
+        "colorScheme": { "$type": "string", "$value": "light" },
+        "scrim": { "$type": "color", "$value": "rgb(0 0 0 / 28%)" },
+        "demoPaper": { "$type": "color", "$value": "#f3efe5" },
+        "demoInk": { "$type": "color", "$value": "#1a1d19" }
+      },
+      "dark": {
+        "selector": { "$type": "string", "$value": "[data-theme=dark]" },
+        "colorScheme": { "$type": "string", "$value": "dark" },
+        "scrim": { "$type": "color", "$value": "rgb(0 0 0 / 52%)" },
+        "demoPaper": { "$type": "color", "$value": "#20221f" },
+        "demoInk": { "$type": "color", "$value": "#f2f0e8" }
+      }
+    }
+  },
+  "component": {
+    "windowBar": {
+      "height": { "$type": "dimension", "$value": "52px" }
+    },
+    "canvas": {
+      "inset": { "$type": "dimension", "$value": "clamp(12px, 2.2vw, 32px)" },
+      "radius": { "$type": "dimension", "$value": "18px" }
+    },
+    "composer": {
+      "width": { "$type": "dimension", "$value": "min(720px, calc(100vw - 32px))" },
+      "radius": { "$type": "dimension", "$value": "24px" }
+    },
+    "sheet": {
+      "width": { "$type": "dimension", "$value": "360px" },
+      "gutter": { "$type": "dimension", "$value": "16px" }
+    },
+    "selection": {
+      "stroke": { "$type": "dimension", "$value": "2px" },
+      "handle": { "$type": "dimension", "$value": "6px" }
+    }
+  }
+}

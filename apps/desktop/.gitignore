@@ -1,4 +1,6 @@
 dist/
+dist-experience/
+node_modules/
 artifacts/
 snapshot.html
 .DS_Store

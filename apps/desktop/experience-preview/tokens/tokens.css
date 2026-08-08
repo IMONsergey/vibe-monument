@@ -1,0 +1,70 @@
+@layer theme {
+  :root,
+  :where([data-theme]) {
+    color-scheme: light;
+
+    --mon-surface-workspace: var(--color-surface-secondary);
+    --mon-surface-canvas: var(--color-surface);
+    --mon-surface-elevated: var(--color-surface-elevated);
+    --mon-surface-quiet: var(--color-surface-tertiary);
+    --mon-surface-scrim: rgb(0 0 0 / 28%);
+
+    --mon-text-primary: var(--color-text);
+    --mon-text-secondary: var(--color-text-secondary);
+    --mon-text-tertiary: var(--color-text-tertiary);
+    --mon-text-inverse: var(--color-text-inverse);
+
+    --mon-stroke-subtle: var(--color-border-subtle);
+    --mon-stroke-default: var(--color-border);
+    --mon-stroke-strong: var(--color-border-strong);
+    --mon-focus: var(--color-ring);
+
+    --mon-selection: var(--blue-400);
+    --mon-selection-label: light-dark(var(--blue-600), var(--blue-500));
+    --mon-selection-soft: var(--blue-a50);
+    --mon-ai-primary: var(--purple-400);
+    --mon-ai-secondary: var(--blue-400);
+    --mon-ai-tertiary: var(--pink-400);
+    --mon-status-ready: var(--green-500);
+    --mon-status-warning: var(--orange-500);
+    --mon-status-blocked: var(--red-500);
+
+    /* OpenAI package semantic override: preserve the primitive while meeting
+       contrast at the small Badge size used by Monument. */
+    --color-text-success-soft: light-dark(var(--green-800), var(--green-200));
+
+    --mon-windowbar-height: 52px;
+    --mon-canvas-inset: clamp(12px, 2.2vw, 32px);
+    --mon-canvas-radius: 18px;
+    --mon-composer-width: min(720px, calc(100vw - 32px));
+    --mon-composer-radius: var(--composer-radius, 24px);
+    --mon-sheet-width: 360px;
+    --mon-sheet-gutter: 16px;
+
+    --mon-duration-feedback: 120ms;
+    --mon-duration-enter: 180ms;
+    --mon-duration-move: 220ms;
+    --mon-ease-enter: var(--cubic-enter);
+    --mon-ease-move: var(--cubic-move);
+
+    --demo-paper: #f3efe5;
+    --demo-paper-bright: #fffdf7;
+    --demo-ink: #1a1d19;
+    --demo-ink-soft: #66675f;
+    --demo-clay: #b96042;
+    --demo-moss: #566548;
+    --demo-sun: #e8ba5e;
+  }
+
+  :where([data-theme="dark"]) {
+    color-scheme: dark;
+    --mon-surface-scrim: rgb(0 0 0 / 52%);
+    --demo-paper: #20221f;
+    --demo-paper-bright: #292b27;
+    --demo-ink: #f2f0e8;
+    --demo-ink-soft: #aaa99f;
+    --demo-clay: #dc8162;
+    --demo-moss: #829271;
+    --demo-sun: #e4bd71;
+  }
+}

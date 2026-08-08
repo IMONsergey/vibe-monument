@@ -1,0 +1,47 @@
+name: Monument Experience Preview
+
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/experience-preview/**"
+      - "apps/desktop/package.json"
+      - "apps/desktop/docs/OPENAI_DESIGN_FOUNDATION.md"
+      - "apps/desktop/docs/PRODUCT_EXPERIENCE_REFOUNDATION.md"
+      - ".github/workflows/monument-experience-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monument-experience-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview-contract:
+    name: Official UI integration + static preview
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/desktop/experience-preview
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.18.0
+          cache: npm
+          cache-dependency-path: apps/desktop/experience-preview/package-lock.json
+      - name: Install audited preview dependencies
+        run: npm ci --ignore-scripts
+      - name: Check preview contract
+        run: npm run check
+      - name: Build standalone preview
+        run: npm run build
+      - name: Browser, keyboard, geometry, and accessibility proof
+        run: npm run qa
+      - name: Upload reviewable preview artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: monument-contextual-orbit-preview
+          path: apps/desktop/dist-experience
+          if-no-files-found: error

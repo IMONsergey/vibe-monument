@@ -345,3 +345,25 @@ Distribution: Developer ID signing, hardened runtime, notarization/stapling, sig
 - Docker/Kubernetes dashboards;
 - generic model gateway;
 - full browser DevTools clone.
+
+## 11. Product Experience Refoundation preview gate (2026-08-08)
+
+The current production head mounts three sibling shells (`App`, `VisualEditorLayer`, and `AlphaPreviewShell`). This is now recorded as an information-architecture defect, not a styling backlog.
+
+The active refoundation direction is **Contextual Orbit**:
+
+- the live product/canvas dominates;
+- the composer is compact and persistent;
+- selection and Properties are contextual;
+- Codex is quiet when idle and transient when active;
+- Timeline, Evidence, Fresh Review, and Ship use progressive disclosure around the same generation;
+- technical/source truth remains available under explicit details;
+- source authority, native safety, preview isolation, generation semantics, and Intel release gates do not change.
+
+Canonical decision documents:
+
+- `OPENAI_DESIGN_FOUNDATION.md` — published/observed/derived provenance and token foundation;
+- `PRODUCT_EXPERIENCE_REFOUNDATION.md` — teardown, architecture hypotheses, chosen IA, journeys, and migration gate;
+- `../experience-preview/` — standalone interactive concept and primitive lab.
+
+**Hard gate:** the preview is not imported into production. No production migration begins until Sergey approves the direction and a separate vertical-slice spec proves the existing source → Timeline → Evidence → Fresh Review chain on Intel.
