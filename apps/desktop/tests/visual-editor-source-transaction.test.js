@@ -15,6 +15,8 @@ const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const ship = await readFile(new URL('../src/ship/controller.ts', import.meta.url), 'utf8');
 const verification = await readFile(new URL('../src/verification/controller.ts', import.meta.url), 'utf8');
 const browserEvidence = await readFile(new URL('../src/browser/evidence.ts', import.meta.url), 'utf8');
+const repair = await readFile(new URL('../src/repair/controller.ts', import.meta.url), 'utf8');
+const review = await readFile(new URL('../src/review/controller.ts', import.meta.url), 'utf8');
 
 test('native source transaction is bounded, revalidated and atomically written', () => {
   for (const token of [
@@ -67,7 +69,7 @@ test('direct Apply is generation-bound and cannot overlap other source mutation'
   assert.ok(transactionState.includes('unacknowledgedCheckpoints'));
 });
 
-test('visual generations use an isolated serial namespace and flow through evidence', () => {
+test('visual generations use an isolated serial namespace and flow through evidence and repair', () => {
   assert.ok(timelineTypes.includes("'visual'"));
   assert.ok(timeline.includes("kind: 'visual'"));
   assert.ok(timeline.includes('return -(Date.now() * 1000 + visualGenerationCounter)'));
@@ -81,6 +83,14 @@ test('visual generations use an isolated serial namespace and flow through evide
   assert.ok(app.includes('beginSourceTransactionValidation'));
   assert.ok(app.includes('endSourceTransactionValidation'));
   assert.ok(app.includes('setSourceTransactionOrchestrationBlocked'));
+
+  assert.ok(repair.includes("evidence.trigger !== 'visual-edit'"));
+  assert.ok(repair.includes('evidence.turnSerial === 0'));
+  assert.ok(!repair.includes('evidence.turnSerial <= 0'));
+  assert.ok(review.includes('record.turnSerial !== 0'));
+  assert.ok(review.includes('record.turnSerial === 0'));
+  assert.ok(!review.includes('record.turnSerial > 0'));
+  assert.ok(!review.includes('record.turnSerial <= 0'));
 });
 
 test('Ship treats negative visual generations as valid but blocks transaction handoff races', () => {
