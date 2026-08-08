@@ -130,6 +130,7 @@ function normalizeSelection(value: unknown): EditorSelection | null {
     },
     tag: clipped(source.tag, 32).toLowerCase() || 'element',
     id,
+    idUnique: Boolean(id && source.idUnique === true),
     classes: Array.isArray(source.classes)
       ? source.classes.filter((item): item is string => typeof item === 'string').slice(0, 12).map((item) => item.slice(0, 80))
       : [],
