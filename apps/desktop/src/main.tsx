@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { AlphaPreviewShell } from './components/AlphaPreviewShell';
 import { VisualEditorLayer } from './editor/VisualEditorLayer';
 import './styles/product.css';
 import './styles/protocol.css';
@@ -13,6 +14,7 @@ import './styles/ship-git.css';
 import './styles/visual-editor.css';
 import './styles/visual-editor-editing.css';
 import './styles/visual-editor-content.css';
+import './styles/alpha-preview.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Monument root element is missing');
@@ -21,5 +23,6 @@ createRoot(root).render(
   <>
     <App />
     <VisualEditorLayer />
+    <AlphaPreviewShell />
   </>,
 );
