@@ -3,6 +3,52 @@ mod core {
 
     use serde_json::json;
 
+    fn enforce_stylesheet_precedence(
+        project_path: &str,
+        selection: &MarkupEditSelection,
+        change: &MarkupEditChange,
+        lane: MarkupLane,
+    ) -> Result<(), String> {
+        if lane != MarkupLane::Tailwind {
+            return Ok(());
+        }
+
+        let css_selection: crate::source_transaction::SourceTransactionSelection =
+            serde_json::from_value(json!({
+                "id": selection.id.clone(),
+                "classes": selection.classes.clone(),
+                "selector": null,
+            }))
+            .map_err(|error| format!("Cannot build CSS precedence selection: {error}"))?;
+        let css_change: crate::source_transaction::SourceTransactionChange =
+            serde_json::from_value(json!({
+                "property": change.property.clone(),
+                "before": change.before.clone(),
+                "after": change.after.clone(),
+            }))
+            .map_err(|error| format!("Cannot build CSS precedence change: {error}"))?;
+
+        // The existing M2.1 resolver is the authority for whether a stylesheet can own this
+        // property. Only an explicit Codex result means CSS ownership was not proved. Any error,
+        // deterministic owner or assisted owner fails closed before Tailwind write authority.
+        let plan = crate::source_transaction::project_source_transaction_preview(
+            project_path.to_string(),
+            css_selection,
+            vec![css_change],
+        )?;
+        let serialized = serde_json::to_value(&plan)
+            .map_err(|error| format!("Cannot inspect CSS precedence result: {error}"))?;
+        let mode = serialized.get("mode").and_then(|value| value.as_str()).unwrap_or("unknown");
+        if mode == "codex" {
+            return Ok(());
+        }
+        let reason = serialized
+            .get("reason")
+            .and_then(|value| value.as_str())
+            .unwrap_or("CSS ownership is present or could not be excluded safely");
+        Err(format!("Tailwind direct write blocked by CSS ownership: {reason}"))
+    }
+
     fn enforce_tailwind_conflict_guard(
         project_path: &str,
         selection: &MarkupEditSelection,
@@ -78,8 +124,15 @@ mod core {
             .as_ref()
             .ok_or_else(|| "Markup operation disappeared during commit resolution".to_string())?;
 
-        // Critical difference from a frontend-only preflight: the independent Tailwind veto runs
-        // after the exact v2 ownership resolution and inside the same native commit command.
+        // Production write authority repeats both source-lane proof lines inside the same native
+        // commit command: M2.1 stylesheet precedence first, then the independent Tailwind
+        // multi-property veto. Frontend checks remain UX only.
+        enforce_stylesheet_precedence(
+            &project_path,
+            &selection,
+            &change,
+            operation_ref.lane,
+        )?;
         enforce_tailwind_conflict_guard(
             &project_path,
             &selection,
@@ -114,14 +167,14 @@ mod core {
             return Err("Markup source transaction target escapes project root".into());
         }
 
-        // Re-read only after the independent guard. An external edit between v2 resolution and the
-        // guard cannot inherit the old write authority because the original whole-file fingerprint
-        // and exact source range must still match here.
+        // Re-read only after both independent proof lines. An external edit between v2 ownership
+        // resolution and either veto cannot inherit the old write authority because the original
+        // whole-file fingerprint and exact source range must still match here.
         let mut content = fs::read_to_string(&canonical)
             .map_err(|error| format!("Cannot read markup transaction target: {error}"))?;
         if fingerprint(&content) != expected_fingerprint {
             return Err(
-                "Source changed while validating the Tailwind conflict guard; re-apply against current source"
+                "Source changed while validating markup write authority; re-apply against current source"
                     .into(),
             );
         }
@@ -191,7 +244,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn fixture(name: &str, classes: &str) -> PathBuf {
+    fn fixture(name: &str, classes: &str, css: Option<&str>) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -203,6 +256,9 @@ mod tests {
             format!(r#"export const App=()=> <div id="hero" className="{classes}"/>;"#),
         )
         .unwrap();
+        if let Some(css) = css {
+            fs::write(root.join("src/styles.css"), css).unwrap();
+        }
         root
     }
 
@@ -226,8 +282,21 @@ mod tests {
     }
 
     #[test]
+    fn native_commit_refuses_competing_css_owner_after_markup_resolution() {
+        let root = fixture("css", "w-[16px]", Some("#hero { width: 16px; }"));
+        let result = project_markup_transaction_commit(
+            root.to_string_lossy().to_string(),
+            selection(&["w-[16px]"]),
+            change("width", "16px", "24px"),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("CSS ownership"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn native_commit_refuses_hidden_size_competitor_after_v2_resolution() {
-        let root = fixture("size", "w-[16px] size-[32px]");
+        let root = fixture("size", "w-[16px] size-[32px]", None);
         let result = project_markup_transaction_commit(
             root.to_string_lossy().to_string(),
             selection(&["w-[16px]", "size-[32px]"]),
@@ -240,7 +309,7 @@ mod tests {
 
     #[test]
     fn native_commit_preserves_safe_tailwind_write() {
-        let root = fixture("safe", "w-[16px]");
+        let root = fixture("safe", "w-[16px]", None);
         project_markup_transaction_commit(
             root.to_string_lossy().to_string(),
             selection(&["w-[16px]"]),
