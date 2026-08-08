@@ -1,5 +1,5 @@
 import { stateGet, stateSet } from '../host/native';
-import { activeTimelineProjectRoot, currentTimelineTurnSerial } from '../timeline/controller';
+import { activeTimelineProjectRoot, currentTimelineCheckpoint, currentTimelineTurnSerial } from '../timeline/controller';
 import type { BrowserEvidenceRecord } from '../browser/evidence';
 import type { VerificationEvidence, VerificationResult } from '../verification/controller';
 
@@ -15,6 +15,7 @@ export interface AutoRepairRequest {
   projectId: string;
   projectRoot: string;
   evidenceId: string;
+  checkpointId: string | null;
   turnSerial: number;
   prompt: string;
   source: RepairSource;
@@ -51,7 +52,7 @@ function safetyRules(): string[] {
     '- Do not delete, skip, disable, weaken, or rewrite tests merely to make the result green.',
     '- Do not change package scripts, lint/typecheck configuration, or thresholds merely to suppress the failure.',
     '- Do not revert unrelated user work.',
-    '- Keep the repair scoped to the observed failure and the current task.',
+    '- Keep the repair scoped to the observed failure and the current saved version.',
     '- If a required action needs approval, request it normally; Monument will not auto-approve it.',
   ];
 }
@@ -72,6 +73,7 @@ export function buildAutoRepairPrompt(evidence: VerificationEvidence, source: Re
   return boundedPrompt([
     source === 'automatic' ? '[Monument automatic repair request]' : '[Monument explicit repair request]',
     '',
+    `Saved checkpoint: ${evidence.checkpointId ?? '[legacy/unbound evidence]'}`,
     'Deterministic verification failed. Diagnose the actual cause and make the smallest correct code change that satisfies the original user request and restores the failing checks.',
     '',
     ...safetyRules(),
@@ -98,6 +100,7 @@ export function buildBrowserRepairPrompt(record: BrowserEvidenceRecord): string 
   return boundedPrompt([
     '[Monument explicit browser repair request]',
     '',
+    `Saved checkpoint: ${record.capturedForCheckpointId ?? '[legacy/unbound evidence]'}`,
     'The live product produced browser/runtime evidence that needs investigation. Reproduce or trace the issue from the current repository state, identify the real cause, and make the smallest correct fix.',
     '',
     ...safetyRules(),
@@ -116,11 +119,12 @@ function dispatchRepair(detail: AutoRepairRequest): boolean {
 }
 
 export function requestVerificationRepair(evidence: VerificationEvidence): boolean {
-  if (evidence.status !== 'failed' || evidence.turnSerial <= 0) return false;
+  if (evidence.status !== 'failed' || (!evidence.checkpointId && evidence.turnSerial <= 0)) return false;
   return dispatchRepair({
     projectId: evidence.projectId,
     projectRoot: evidence.projectRoot,
     evidenceId: `explicit-checks:${evidence.id}`,
+    checkpointId: evidence.checkpointId,
     turnSerial: evidence.turnSerial,
     prompt: buildAutoRepairPrompt(evidence, 'explicit'),
     source: 'explicit',
@@ -132,12 +136,18 @@ export async function requestBrowserRepair(record: BrowserEvidenceRecord): Promi
   if (record.stale || !browserHasIssues(record)) return false;
   const projectRoot = activeTimelineProjectRoot(record.projectId);
   if (!projectRoot) return false;
-  const currentGeneration = await currentTimelineTurnSerial(record.projectId, record.capturedForTurnSerial).catch(() => record.capturedForTurnSerial);
-  if (currentGeneration == null || currentGeneration !== record.capturedForTurnSerial) return false;
+  const currentCheckpoint = await currentTimelineCheckpoint(record.projectId).catch(() => null);
+  if (record.capturedForCheckpointId) {
+    if (!currentCheckpoint || currentCheckpoint.id !== record.capturedForCheckpointId) return false;
+  } else {
+    const currentGeneration = await currentTimelineTurnSerial(record.projectId, record.capturedForTurnSerial).catch(() => record.capturedForTurnSerial);
+    if (currentGeneration == null || currentGeneration !== record.capturedForTurnSerial) return false;
+  }
   return dispatchRepair({
     projectId: record.projectId,
     projectRoot,
     evidenceId: `explicit-browser:${record.snapshot.requestId}`,
+    checkpointId: record.capturedForCheckpointId,
     turnSerial: record.capturedForTurnSerial,
     prompt: buildBrowserRepairPrompt(record),
     source: 'explicit',
@@ -146,12 +156,13 @@ export async function requestBrowserRepair(record: BrowserEvidenceRecord): Promi
 }
 
 export async function requestAutoRepairIfEnabled(evidence: VerificationEvidence): Promise<boolean> {
-  if (evidence.trigger !== 'codex-turn' || evidence.status !== 'failed') return false;
+  if (evidence.trigger !== 'codex-turn' || evidence.status !== 'failed' || !evidence.checkpointId) return false;
   if (!(await isAutoRepairEnabled(evidence.projectId))) return false;
   return dispatchRepair({
     projectId: evidence.projectId,
     projectRoot: evidence.projectRoot,
     evidenceId: `automatic:${evidence.id}`,
+    checkpointId: evidence.checkpointId,
     turnSerial: evidence.turnSerial,
     prompt: buildAutoRepairPrompt(evidence, 'automatic'),
     source: 'automatic',
