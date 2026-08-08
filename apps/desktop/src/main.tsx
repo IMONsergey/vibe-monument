@@ -9,6 +9,7 @@ import './styles/browser-evidence.css';
 import './styles/timeline.css';
 import './styles/queue.css';
 import './styles/ship.css';
+import './styles/review-ship-layer.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Monument root element is missing');
