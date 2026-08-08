@@ -19,6 +19,11 @@ import {
   type BrowserEvidenceRecord,
 } from './browser/evidence';
 import {
+  beginSourceTransactionValidation,
+  endSourceTransactionValidation,
+  setSourceTransactionOrchestrationBlocked,
+} from './editor/transactionState';
+import {
   codexStatus,
   inspectProject,
   invokeNative,
@@ -90,6 +95,14 @@ import {
 
 type Viewport = 'desktop' | 'mobile';
 type DeveloperTab = 'activity' | 'files' | 'runtime' | 'evidence' | 'diagnostics';
+
+type SourceTransactionEventDetail = {
+  projectId: string;
+  path: string;
+  appliedCount: number;
+  checkpointId: string;
+  turnSerial: number;
+};
 
 const INITIAL_WORKSPACE: WorkspaceState = {
   project: null,
@@ -199,6 +212,20 @@ export function App() {
   useEffect(() => {
     activeProjectIdRef.current = project?.id ?? null;
   }, [project?.id]);
+
+  useEffect(() => {
+    if (!project) return;
+    const blocked = sending
+      || queueDispatching
+      || verificationBusy
+      || timelineBusy
+      || browserEvidenceBusy
+      || freshReviewRunning
+      || workspace.codexState === 'busy'
+      || workspace.codexState === 'approval';
+    setSourceTransactionOrchestrationBlocked(project.id, blocked);
+    return () => setSourceTransactionOrchestrationBlocked(project.id, false);
+  }, [browserEvidenceBusy, freshReviewRunning, project?.id, queueDispatching, sending, timelineBusy, verificationBusy, workspace.codexState]);
 
   useEffect(() => {
     if (!project) {
@@ -361,6 +388,51 @@ export function App() {
     }, 220);
     return () => window.clearTimeout(timer);
   }, [project, refreshProjectSnapshot, refreshTimeline, runtimeUrl, timelineBusy, verificationBusy, workspace.activeThreadId, workspace.completionSerial, workspace.turnSerial]);
+
+  useEffect(() => {
+    if (!project) return;
+    const onSourceTransaction = (event: Event) => {
+      const detail = (event as CustomEvent<SourceTransactionEventDetail>).detail;
+      if (!detail || detail.projectId !== project.id || !Number.isFinite(detail.turnSerial) || detail.turnSerial === 0) return;
+      const projectId = project.id;
+      const projectRoot = project.rootPath;
+      const turnSerial = Math.trunc(detail.turnSerial);
+      beginSourceTransactionValidation(projectId);
+      setShipOpen(false);
+      setFreshReview(null);
+      setQueueFailureOverride(null);
+      setTimelineBusy(true);
+      setVerificationBusy(true);
+      void (async () => {
+        try {
+          await refreshTimeline(project);
+          setTimelineBusy(false);
+          await runVerification({ projectId, projectRoot, trigger: 'visual-edit', turnSerial });
+          await refreshProjectSnapshot(projectRoot, projectId);
+          if (runtimeUrl && activeProjectIdRef.current === projectId) {
+            await clearBrowserEvidenceBuffer().catch(() => undefined);
+            await new Promise((resolve) => window.setTimeout(resolve, 650));
+            setBrowserEvidenceBusy(true);
+            try {
+              await captureBrowserEvidence(projectId, turnSerial);
+            } catch {
+              // Browser evidence remains independently stale/absent if the live capture fails.
+            } finally {
+              setBrowserEvidenceBusy(false);
+            }
+          }
+        } catch (error) {
+          setNotice(`Visual edit post-check failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          endSourceTransactionValidation(projectId);
+          setVerificationBusy(false);
+          setTimelineBusy(false);
+        }
+      })();
+    };
+    window.addEventListener('monument:source-transaction', onSourceTransaction);
+    return () => window.removeEventListener('monument:source-transaction', onSourceTransaction);
+  }, [project, refreshProjectSnapshot, refreshTimeline, runtimeUrl]);
 
   useEffect(() => {
     if (!native) return;

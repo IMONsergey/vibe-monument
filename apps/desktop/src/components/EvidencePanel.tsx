@@ -87,7 +87,7 @@ export function EvidencePanel({
         await runVerification({
           projectId: evidence.projectId,
           projectRoot: evidence.projectRoot,
-          trigger: 'codex-turn',
+          trigger: evidence.trigger === 'visual-edit' ? 'visual-edit' : 'codex-turn',
           turnSerial: evidence.turnSerial,
         });
       }
@@ -136,6 +136,8 @@ export function EvidencePanel({
     if (requestVerificationRepair(evidence)) setExplicitRepairRequested(true);
   };
 
+  const visualGeneration = evidence?.trigger === 'visual-edit';
+
   return (
     <div className={`evidence-panel ${stale ? 'stale' : ''}`}>
       <div className="evidence-header">
@@ -167,7 +169,7 @@ export function EvidencePanel({
             <strong>Auto checks · {autoEnabled ? 'On' : 'Off'}</strong>
             <span>
               {autoEnabled
-                ? `After each Codex turn Monument may run: ${automaticPlan.map((item) => item.script).join(', ')}.`
+                ? `After supported Codex and direct visual code generations Monument may run: ${automaticPlan.map((item) => item.script).join(', ')}.`
                 : `Detected ${automaticPlan.map((item) => item.script).join(', ')}. These are project scripts and require your permission.`}
             </span>
           </div>
@@ -186,19 +188,21 @@ export function EvidencePanel({
           <div>
             <strong>Auto repair · {repairEnabled ? 'On' : 'Off'}</strong>
             <span>
-              {repairEnabled
-                ? 'If permitted automatic checks fail, Codex may make up to 2 bounded repair attempts. Permissions are never auto-approved.'
-                : autoEnabled
-                  ? 'Optional: let Monument attempt up to 2 bounded fixes after automatic checks fail.'
-                  : 'Enable Auto checks first. Auto repair never grants permission to run project scripts by itself.'}
+              {visualGeneration
+                ? 'Direct visual generations keep repair explicit for now. If checks fail, use Fix with Monument; automatic repair budgets remain scoped to Codex repair chains.'
+                : repairEnabled
+                  ? 'If permitted automatic checks fail after a Codex generation, Codex may make up to 2 bounded repair attempts. Permissions are never auto-approved.'
+                  : autoEnabled
+                    ? 'Optional for Codex generations: let Monument attempt up to 2 bounded fixes after automatic checks fail.'
+                    : 'Enable Auto checks first. Auto repair never grants permission to run project scripts by itself.'}
             </span>
           </div>
           <button
             type="button"
-            disabled={repairBusy || autoBusy || !autoEnabled || evidence?.status === 'running'}
+            disabled={repairBusy || autoBusy || !autoEnabled || evidence?.status === 'running' || visualGeneration}
             onClick={() => void (repairEnabled ? disableRepair() : enableRepair())}
           >
-            {repairBusy ? 'Saving…' : repairEnabled ? 'Disable' : autoEnabled ? 'Enable auto repair' : 'Enable checks first'}
+            {visualGeneration ? 'Codex generations only' : repairBusy ? 'Saving…' : repairEnabled ? 'Disable' : autoEnabled ? 'Enable auto repair' : 'Enable checks first'}
           </button>
         </div>
       ) : null}
@@ -211,7 +215,7 @@ export function EvidencePanel({
 
       {stale && evidence ? (
         <div className="evidence-stale">
-          These checks belong to an older turn. Run or wait for current verification before treating them as evidence.
+          These checks belong to an older code generation. Run or wait for current verification before treating them as evidence.
         </div>
       ) : null}
 

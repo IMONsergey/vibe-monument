@@ -1,3 +1,8 @@
+import {
+  acknowledgeSourceTransactionCheckpoint,
+  clearSourceTransactionCheckpoint,
+  clearSourceTransactionDirty,
+} from '../editor/transactionState';
 import type { ProjectInspection } from '../types';
 import {
   timelineBack,
@@ -21,10 +26,19 @@ export const TIMELINE_RESTORED_EVENT = 'monument:timeline-restored';
 
 const pendingPrompts = new Map<string, string>();
 let activeTimelineProject: ProjectInspection | null = null;
+let visualGenerationCounter = 0;
 
 function compactPrompt(value: string, limit = 120): string {
   const compact = value.replace(/\s+/g, ' ').trim();
   return compact.length <= limit ? compact : `${compact.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function nextVisualGenerationSerial(): number {
+  visualGenerationCounter = (visualGenerationCounter + 1) % 1000;
+  // Codex generations are positive. Direct visual source transactions live in a
+  // separate negative namespace, so they can share evidence/Review/Ship ledgers
+  // without ever colliding with a future Codex turn serial.
+  return -(Date.now() * 1000 + visualGenerationCounter);
 }
 
 function notifyTimelineRestored(result: TimelineRestoreResult): TimelineRestoreResult {
@@ -49,7 +63,9 @@ export function timelineProjectId(project: Pick<ProjectInspection, 'rootPath'>):
 
 export async function prepareTimeline(project: ProjectInspection): Promise<TimelineState> {
   activeTimelineProject = project;
-  return timelineInit(project.rootPath, timelineProjectId(project));
+  const state = await timelineInit(project.rootPath, timelineProjectId(project));
+  acknowledgeSourceTransactionCheckpoint(project.id, state.currentCheckpointId);
+  return state;
 }
 
 export function activeTimelineProjectRoot(projectId: string): string | null {
@@ -91,6 +107,8 @@ export async function checkpointCompletedTurn({
   const current = state.checkpoints.find((checkpoint) => checkpoint.id === state.currentCheckpointId) ?? null;
   if (!state.dirty && current?.turnSerial === turnSerial) {
     pendingPrompts.delete(project.id);
+    clearSourceTransactionDirty(project.id);
+    clearSourceTransactionCheckpoint(project.id);
     return current;
   }
 
@@ -104,6 +122,31 @@ export async function checkpointCompletedTurn({
     turnSerial,
   });
   pendingPrompts.delete(project.id);
+  clearSourceTransactionDirty(project.id);
+  clearSourceTransactionCheckpoint(project.id);
+  return checkpoint;
+}
+
+export async function checkpointVisualSourceTransaction({
+  project,
+  title,
+  detail,
+}: {
+  project: ProjectInspection;
+  title: string;
+  detail: string;
+}): Promise<TimelineCheckpoint> {
+  activeTimelineProject = project;
+  const turnSerial = nextVisualGenerationSerial();
+  const checkpoint = await timelineSnapshot(project.rootPath, timelineProjectId(project), {
+    kind: 'visual',
+    title: compactPrompt(title, 76) || 'Visual edit',
+    promptExcerpt: compactPrompt(detail, 360) || null,
+    codexThreadId: null,
+    codexTurnId: null,
+    turnSerial,
+  });
+  clearSourceTransactionDirty(project.id);
   return checkpoint;
 }
 
@@ -130,11 +173,14 @@ export async function saveTimelineVersion(
   title = 'Saved version',
 ): Promise<TimelineCheckpoint> {
   activeTimelineProject = project;
-  return timelineSnapshot(project.rootPath, timelineProjectId(project), {
+  const checkpoint = await timelineSnapshot(project.rootPath, timelineProjectId(project), {
     kind: 'manual',
     title: compactPrompt(title, 76) || 'Saved version',
     turnSerial: null,
   });
+  clearSourceTransactionDirty(project.id);
+  clearSourceTransactionCheckpoint(project.id);
+  return checkpoint;
 }
 
 export async function readTimelineStatus(project: ProjectInspection): Promise<TimelineStatus> {
@@ -147,7 +193,10 @@ export async function restoreTimelineVersion(
   checkpointId: string,
 ): Promise<TimelineRestoreResult> {
   activeTimelineProject = project;
-  return notifyTimelineRestored(await timelineRestore(project.rootPath, timelineProjectId(project), checkpointId));
+  const result = await timelineRestore(project.rootPath, timelineProjectId(project), checkpointId);
+  clearSourceTransactionDirty(project.id);
+  clearSourceTransactionCheckpoint(project.id);
+  return notifyTimelineRestored(result);
 }
 
 export async function backTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
@@ -167,12 +216,17 @@ export async function backTimeline(project: ProjectInspection): Promise<Timeline
       forwardCheckpointId: next?.id ?? null,
     };
   }
+  clearSourceTransactionDirty(project.id);
+  clearSourceTransactionCheckpoint(project.id);
   return notifyTimelineRestored(result);
 }
 
 export async function forwardTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
   activeTimelineProject = project;
-  return notifyTimelineRestored(await timelineForward(project.rootPath, timelineProjectId(project)));
+  const result = await timelineForward(project.rootPath, timelineProjectId(project));
+  clearSourceTransactionDirty(project.id);
+  clearSourceTransactionCheckpoint(project.id);
+  return notifyTimelineRestored(result);
 }
 
 export async function compareTimelineVersions(

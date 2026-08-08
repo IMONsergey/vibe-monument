@@ -13,6 +13,8 @@
     "allow-project-open",
     "allow-project-inspect",
     "allow-project-source-hints",
+    "allow-project-source-transaction-preview",
+    "allow-project-source-transaction-commit",
     "allow-runtime-start",
     "allow-runtime-status",
     "allow-runtime-stop",

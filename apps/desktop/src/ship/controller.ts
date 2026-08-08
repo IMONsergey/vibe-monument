@@ -1,4 +1,9 @@
 import { browserEvidenceHasIssues, type BrowserEvidenceRecord } from '../browser/evidence';
+import {
+  hasPendingSourceTransaction,
+  hasUnacknowledgedSourceTransaction,
+  isSourceTransactionValidationBusy,
+} from '../editor/transactionState';
 import type { FreshReviewRecord } from '../review/controller';
 import { unresolvedFindings } from '../review/controller';
 import type { PromptQueueState } from '../queue/controller';
@@ -50,6 +55,10 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
   const items: ShipGateItem[] = [];
   const current = input.timeline?.checkpoints.find((checkpoint) => checkpoint.id === input.timeline?.currentCheckpointId) ?? null;
   const turnSerial = current?.turnSerial ?? null;
+  const projectId = input.project?.id ?? null;
+  const directSourcePending = hasPendingSourceTransaction(projectId)
+    || hasUnacknowledgedSourceTransaction(projectId)
+    || isSourceTransactionValidationBusy(projectId);
 
   if (!input.project) {
     items.push(item('project', 'Project', 'block', 'Open a project before shipping.'));
@@ -57,20 +66,22 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
     items.push(item('project', 'Project', 'pass', input.project.name));
   }
 
-  if (!input.timeline || !current) {
+  if (directSourcePending) {
+    items.push(item('version', 'Saved version', 'block', 'A direct visual source transaction is still being checkpointed or verified. Ship stays closed until the exact Timeline generation is current.'));
+  } else if (!input.timeline || !current) {
     items.push(item('version', 'Saved version', 'block', 'Version Timeline is not ready.'));
   } else if (input.timeline.dirty) {
     items.push(item('version', 'Saved version', 'block', 'The current source has uncheckpointed changes. Save a version before review/ship.'));
   } else if (current.kind === 'baseline') {
     items.push(item('version', 'Saved version', 'block', 'Original baseline has no Monument change to ship.'));
-  } else if (turnSerial == null || turnSerial <= 0) {
-    items.push(item('version', 'Generation binding', 'block', 'This saved version is not bound to a Codex generation yet, so current evidence cannot be proven to match it.'));
+  } else if (turnSerial == null || turnSerial === 0) {
+    items.push(item('version', 'Generation binding', 'block', 'This saved version is not bound to an evidence generation yet, so current evidence cannot be proven to match it.'));
   } else {
     items.push(item('version', 'Saved version', 'pass', current.title || `Generation ${turnSerial}`));
   }
 
   const evidence = input.verification?.evidence ?? null;
-  if (turnSerial == null || turnSerial <= 0) {
+  if (turnSerial == null || turnSerial === 0) {
     items.push(item('checks', 'Deterministic checks', 'block', 'Checks cannot satisfy Ship until the current version has a generation id.', 'checks'));
   } else if (!evidence) {
     items.push(item('checks', 'Deterministic checks', 'block', 'No checks have been captured for the current project.', 'checks'));
@@ -94,7 +105,7 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
     items.push(item('browser', 'Live product', 'warn', 'No supported live web runtime is required for this project.'));
   } else if (!input.runtimeAvailable) {
     items.push(item('browser', 'Live product', 'block', 'Start the real preview before shipping so Monument can inspect browser/runtime evidence.', 'browser'));
-  } else if (turnSerial == null || turnSerial <= 0) {
+  } else if (turnSerial == null || turnSerial === 0) {
     items.push(item('browser', 'Browser evidence', 'block', 'Browser evidence cannot satisfy Ship until the current version is generation-bound.', 'browser'));
   } else if (!input.browser) {
     items.push(item('browser', 'Browser evidence', 'block', 'Capture the live product for the current version.', 'browser'));

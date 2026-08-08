@@ -26,6 +26,7 @@ function versionLabel(checkpoint: TimelineCheckpoint, visibleNumber: number | nu
 
 function checkpointKindLabel(checkpoint: TimelineCheckpoint): string | null {
   switch (checkpoint.kind) {
+    case 'visual': return 'Direct visual edit';
     case 'manual': return 'Saved';
     case 'restore-safety': return 'Before restore';
     case 'external': return 'External changes';
@@ -88,7 +89,7 @@ export function VersionTimelinePanel({
   const visibleNumberById = new Map<string, number>();
   let visibleNumber = 0;
   for (const checkpoint of checkpoints) {
-    if (checkpoint.kind === 'prompt' || checkpoint.kind === 'manual') {
+    if (checkpoint.kind === 'prompt' || checkpoint.kind === 'visual' || checkpoint.kind === 'manual') {
       visibleNumber += 1;
       visibleNumberById.set(checkpoint.id, visibleNumber);
     }
@@ -133,7 +134,7 @@ export function VersionTimelinePanel({
           const checkpointQuality = timelineQualityForTurn(quality, checkpoint.turnSerial);
           const deterministic = checkpointQuality ? deterministicBadge(checkpointQuality.deterministic) : null;
           const browser = checkpointQuality ? browserBadge(checkpointQuality.browser) : null;
-          const unverified = checkpoint.kind === 'prompt' && checkpoint.turnSerial != null && !checkpointQuality;
+          const unverified = (checkpoint.kind === 'prompt' || checkpoint.kind === 'visual') && checkpoint.turnSerial != null && !checkpointQuality;
           return (
             <article className={`timeline-card ${isCurrent ? 'current' : ''} ${alternative ? 'alternative' : ''}`} key={checkpoint.id}>
               <div className="timeline-card-top">

@@ -11,6 +11,7 @@ mod review_diff;
 mod review_runtime_v2;
 mod review_source;
 mod source_locator;
+mod source_transaction;
 mod system_runtime;
 mod timeline_cursor;
 mod timeline_runtime;
@@ -31,6 +32,7 @@ use review_diff::timeline_review_packet;
 use review_runtime_v2::review_run;
 use review_source::timeline_review_source_context;
 use source_locator::project_source_hints;
+use source_transaction::{project_source_transaction_commit, project_source_transaction_preview};
 use system_runtime::system_open_external;
 use timeline_cursor::timeline_set_active_path;
 use timeline_runtime::{timeline_diff, timeline_init, timeline_list, timeline_snapshot, timeline_status, TimelineRuntime};
@@ -54,6 +56,8 @@ pub fn run() {
             project_open,
             project_inspect,
             project_source_hints,
+            project_source_transaction_preview,
+            project_source_transaction_commit,
             runtime_start,
             runtime_status,
             runtime_stop,

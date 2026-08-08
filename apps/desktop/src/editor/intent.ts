@@ -1,9 +1,17 @@
-import { inspectProject, stateGet } from '../host/native';
+import { markBrowserEvidenceStale } from '../browser/evidence';
+import { inspectProject, invokeNative, stateGet } from '../host/native';
 import {
   enqueuePrompt,
   loadPromptQueue,
   setPromptQueuePaused,
 } from '../queue/controller';
+import { checkpointVisualSourceTransaction, readTimelineStatus } from '../timeline/controller';
+import {
+  isSourceTransactionOrchestrationBlocked,
+  isSourceTransactionValidationBusy,
+  markSourceTransactionDirty,
+  recordSourceTransactionCheckpoint,
+} from './transactionState';
 import type { EditorSelection } from './types';
 
 export interface VisualPropertyChange {
@@ -18,6 +26,38 @@ export interface VisualEditQueuedResult {
   paused: boolean;
 }
 
+export interface VisualEditApplyResult {
+  projectId: string;
+  mode: 'direct' | 'codex';
+  queuedCount: number;
+  paused: boolean;
+  appliedCount: number;
+  sourcePath: string | null;
+  checkpointId: string | null;
+  turnSerial: number | null;
+  reason: string;
+}
+
+interface SourceTransactionPlan {
+  mode: 'deterministic' | 'assisted' | 'codex';
+  reason: string;
+  operations: Array<{
+    path: string;
+    line: number;
+    selector: string;
+    property: string;
+    sourceBefore: string;
+    sourceAfter: string;
+    ownerKind: string;
+  }>;
+}
+
+interface SourceTransactionCommit {
+  path: string;
+  appliedCount: number;
+  bytesWritten: number;
+}
+
 const MAX_CHANGES = 24;
 const MAX_VALUE = 300;
 
@@ -25,12 +65,16 @@ function clean(value: string, limit = MAX_VALUE): string {
   return value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
-function instruction(selection: EditorSelection, changes: VisualPropertyChange[]): string {
-  const safe = changes.slice(0, MAX_CHANGES).map((change) => ({
+function safeChanges(changes: VisualPropertyChange[]): VisualPropertyChange[] {
+  return changes.slice(0, MAX_CHANGES).map((change) => ({
     property: clean(change.property, 80),
     before: clean(change.before),
     after: clean(change.after),
   })).filter((change) => change.property && change.after && change.before !== change.after);
+}
+
+function instruction(selection: EditorSelection, changes: VisualPropertyChange[]): string {
+  const safe = safeChanges(changes);
 
   if (!safe.length) throw new Error('No visual property changes to apply.');
 
@@ -52,6 +96,51 @@ function instruction(selection: EditorSelection, changes: VisualPropertyChange[]
   ].join('\n');
 }
 
+function transactionSelection(selection: EditorSelection): { id: string | null; classes: string[]; selector: string } {
+  return {
+    id: selection.id || null,
+    classes: selection.classes.slice(0, 16),
+    selector: selection.selector.slice(0, 220),
+  };
+}
+
+function directTransactionTitle(selection: EditorSelection, changes: VisualPropertyChange[]): string {
+  const target = selection.accessibleName || selection.text || selection.tag;
+  const properties = changes.slice(0, 3).map((change) => change.property).join(', ');
+  return `Visual edit · ${target}${properties ? ` · ${properties}` : ''}`;
+}
+
+function directTransactionDetail(path: string, changes: VisualPropertyChange[]): string {
+  return [
+    `Direct deterministic source transaction in ${path}.`,
+    ...changes.slice(0, MAX_CHANGES).map((change) => `${change.property}: ${change.before || '[unset]'} → ${change.after}`),
+  ].join(' · ');
+}
+
+async function directSourcePlan(
+  projectPath: string,
+  selection: EditorSelection,
+  changes: VisualPropertyChange[],
+): Promise<SourceTransactionPlan> {
+  return invokeNative<SourceTransactionPlan>('project_source_transaction_preview', {
+    projectPath,
+    selection: transactionSelection(selection),
+    changes: safeChanges(changes),
+  });
+}
+
+async function commitDirectSourceEdit(
+  projectPath: string,
+  selection: EditorSelection,
+  changes: VisualPropertyChange[],
+): Promise<SourceTransactionCommit> {
+  return invokeNative<SourceTransactionCommit>('project_source_transaction_commit', {
+    projectPath,
+    selection: transactionSelection(selection),
+    changes: safeChanges(changes),
+  });
+}
+
 export async function queueVisualPropertyEdit(
   selection: EditorSelection,
   changes: VisualPropertyChange[],
@@ -67,4 +156,92 @@ export async function queueVisualPropertyEdit(
   const shouldResume = !before.paused || before.items.length === 0;
   const after = shouldResume ? await setPromptQueuePaused(project.id, false) : await loadPromptQueue(project.id, false);
   return { projectId: project.id, queuedCount: after.items.length, paused: after.paused };
+}
+
+export async function applyVisualPropertyEdit(
+  selection: EditorSelection,
+  changes: VisualPropertyChange[],
+): Promise<VisualEditApplyResult> {
+  const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
+  if (!projectPath) throw new Error('Open a project before applying visual changes.');
+  const project = await inspectProject(projectPath);
+  if (isSourceTransactionOrchestrationBlocked(project.id)) {
+    throw new Error('Direct source editing is temporarily locked while Monument is changing or verifying this project.');
+  }
+  if (isSourceTransactionValidationBusy(project.id)) {
+    throw new Error('The previous direct visual edit is still being verified. Apply the next source transaction after its evidence settles.');
+  }
+  const bounded = safeChanges(changes);
+  if (!bounded.length) throw new Error('No visual property changes to apply.');
+
+  // Direct writes are only provenance-safe when the current working tree still matches
+  // the active Timeline generation. Existing external/uncheckpointed source changes are
+  // intentionally routed through Codex instead of being silently absorbed into a visual checkpoint.
+  const timelineStatus = await readTimelineStatus(project).catch(() => null);
+  const plan: SourceTransactionPlan = !timelineStatus
+    ? {
+        mode: 'codex',
+        reason: 'Version Timeline preflight is unavailable; direct source mutation cannot prove generation ownership.',
+        operations: [],
+      }
+    : timelineStatus.dirty
+      ? {
+          mode: 'codex',
+          reason: 'Current source differs from the active Timeline generation; direct editing is disabled until provenance is resolved.',
+          operations: [],
+        }
+      : await directSourcePlan(project.rootPath, selection, bounded).catch((error) => ({
+          mode: 'codex' as const,
+          reason: `Deterministic source resolution unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          operations: [],
+        }));
+
+  if (plan.mode === 'deterministic' && plan.operations.length === bounded.length) {
+    // Commit re-runs the resolver natively. The dry-run is never trusted as authority.
+    const committed = await commitDirectSourceEdit(project.rootPath, selection, bounded);
+    markSourceTransactionDirty(project.id);
+    await markBrowserEvidenceStale(project.id).catch(() => undefined);
+    const checkpoint = await checkpointVisualSourceTransaction({
+      project,
+      title: directTransactionTitle(selection, bounded),
+      detail: directTransactionDetail(committed.path, bounded),
+    });
+    if (checkpoint.turnSerial == null || checkpoint.turnSerial === 0) {
+      throw new Error('Visual source transaction was written but could not be bound to a Timeline generation. Ship remains blocked until the history state is resolved.');
+    }
+    recordSourceTransactionCheckpoint(project.id, checkpoint.id, checkpoint.turnSerial);
+    window.dispatchEvent(new CustomEvent('monument:source-transaction', {
+      detail: {
+        projectId: project.id,
+        path: committed.path,
+        appliedCount: committed.appliedCount,
+        checkpointId: checkpoint.id,
+        turnSerial: checkpoint.turnSerial,
+      },
+    }));
+    return {
+      projectId: project.id,
+      mode: 'direct',
+      queuedCount: 0,
+      paused: false,
+      appliedCount: committed.appliedCount,
+      sourcePath: committed.path,
+      checkpointId: checkpoint.id,
+      turnSerial: checkpoint.turnSerial,
+      reason: plan.reason,
+    };
+  }
+
+  const queued = await queueVisualPropertyEdit(selection, bounded);
+  return {
+    projectId: queued.projectId,
+    mode: 'codex',
+    queuedCount: queued.queuedCount,
+    paused: queued.paused,
+    appliedCount: 0,
+    sourcePath: null,
+    checkpointId: null,
+    turnSerial: null,
+    reason: plan.reason,
+  };
 }

@@ -27,7 +27,7 @@ export interface VerificationEvidence {
   projectId: string;
   projectRoot: string;
   turnSerial: number;
-  trigger: 'codex-turn' | 'manual';
+  trigger: 'codex-turn' | 'visual-edit' | 'manual';
   status: 'running' | 'passed' | 'failed' | 'no-checks' | 'error';
   startedAt: number;
   finishedAt: number | null;
@@ -119,7 +119,7 @@ function timelineStatusFor(evidence: VerificationEvidence): TimelineDeterministi
 
 async function persistFinal(evidence: VerificationEvidence): Promise<void> {
   await persist(evidence);
-  if (evidence.turnSerial > 0) {
+  if (evidence.turnSerial !== 0) {
     const rawStatus = timelineStatusFor(evidence);
     const status: Exclude<TimelineDeterministicStatus, 'not-run'> = rawStatus === 'not-run' ? 'no-checks' : rawStatus;
     await recordTimelineDeterministicQuality(
@@ -170,9 +170,9 @@ export async function runVerification({
     return evidence;
   }
 
-  // Package scripts are repository code. A Codex completion is never permission to run them.
+  // Package scripts are repository code. A Codex completion or direct visual edit is never permission to run them.
   // Automatic checks remain off until the user explicitly enables them for this project.
-  if (trigger === 'codex-turn' && !includeManual && !(await isAutoVerificationEnabled(projectId))) {
+  if (trigger !== 'manual' && !includeManual && !(await isAutoVerificationEnabled(projectId))) {
     evidence.status = 'no-checks';
     evidence.permissionRequired = true;
     evidence.finishedAt = Date.now();

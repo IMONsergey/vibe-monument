@@ -26,7 +26,9 @@ function storageKey(projectId: string): string {
 }
 
 function serialKey(turnSerial: number): string {
-  return String(Math.max(0, Math.trunc(turnSerial)));
+  // Positive ids are Codex generations; negative ids are direct Visual Editor generations.
+  // Zero remains the only unbound sentinel.
+  return String(Math.trunc(turnSerial) || 0);
 }
 
 function emit(projectId: string, quality: TimelineQualityMap): void {
