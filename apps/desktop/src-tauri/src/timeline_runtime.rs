@@ -518,6 +518,7 @@ fn default_title(kind: &str, sequence: i64) -> String {
     match kind {
         "baseline" => "Original".into(),
         "prompt" => format!("Version {sequence}"),
+        "visual" => format!("Visual edit {sequence}"),
         "manual" => "Saved version".into(),
         "restore-safety" => "Before restore".into(),
         "external" => "External changes".into(),
@@ -526,7 +527,7 @@ fn default_title(kind: &str, sequence: i64) -> String {
 }
 
 fn validate_kind(kind: &str) -> Result<(), String> {
-    if matches!(kind, "prompt" | "manual" | "restore-safety" | "external") {
+    if matches!(kind, "prompt" | "visual" | "manual" | "restore-safety" | "external") {
         Ok(())
     } else {
         Err("Unsupported Monument timeline checkpoint kind".into())
