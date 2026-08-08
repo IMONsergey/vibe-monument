@@ -23,6 +23,7 @@ import {
   registerVisualSourceCoordinator,
   type PreparedVisualSourceEdit,
   type VisualSourceApplyResult,
+  type VisualSourcePlanInput,
   type VisualSourcePlanResponse,
 } from './editor/sourceTransaction';
 import type { EditorSelection } from './editor/types';
@@ -152,6 +153,36 @@ function editableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(
     target.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"]'),
   );
+}
+
+async function rollbackDirectVisualSource(
+  prepared: PreparedVisualSourceEdit,
+  applied: VisualSourceApplyResult,
+): Promise<boolean> {
+  const request: VisualSourcePlanInput = {
+    ...prepared.request,
+    before: prepared.change.after,
+    after: prepared.change.before,
+  };
+  const response = await invokeNative<VisualSourcePlanResponse>('visual_source_plan', { input: request }).catch(() => null);
+  const plan = response?.status === 'deterministic' ? response.plan : null;
+  if (!plan || plan.sourcePath !== applied.sourcePath) return false;
+
+  const reverted = await invokeNative<VisualSourceApplyResult>('visual_source_apply', {
+    input: {
+      request,
+      expectedSourcePath: plan.sourcePath,
+      expectedFileFingerprint: plan.fileFingerprint,
+      expectedValueStart: plan.valueStart,
+      expectedValueEnd: plan.valueEnd,
+    },
+  }).catch(() => null);
+  if (!reverted) return false;
+
+  const verification = await invokeNative<VisualSourcePlanResponse>('visual_source_plan', { input: prepared.request }).catch(() => null);
+  return verification?.status === 'deterministic'
+    && verification.plan?.sourcePath === prepared.plan.sourcePath
+    && verification.plan?.beforeSource === prepared.plan.beforeSource;
 }
 
 export function App() {
@@ -493,7 +524,7 @@ export function App() {
       return { kind: 'fallback' as const, reason: 'working source is not an exact saved checkpoint' };
     }
 
-    const request = {
+    const request: VisualSourcePlanInput = {
       projectPath: project.rootPath,
       elementId: editorSelection.id,
       property: change.property,
@@ -553,7 +584,19 @@ export function App() {
       if (runtimeUrl) await clearBrowserEvidenceBuffer().catch(() => undefined);
       setQueueFailureOverride(null);
 
-      const checkpoint = await saveTimelineVersion(project, `Visual edit · ${prepared.change.property}`);
+      let checkpoint;
+      try {
+        checkpoint = await saveTimelineVersion(project, `Visual edit · ${prepared.change.property}`);
+      } catch (error) {
+        const rolledBack = await rollbackDirectVisualSource(prepared, result);
+        await refreshProjectSnapshot(project.rootPath, project.id).catch(() => undefined);
+        if (timelineProjectId.current === project.id) await refreshTimeline(project).catch(() => undefined);
+        if (!rolledBack) {
+          throw new Error(`Version checkpoint failed after the source write and automatic rollback could not be proven. Review ${result.sourcePath} before continuing. Original error: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        throw new Error(`Version checkpoint failed; Monument restored the original source value. ${error instanceof Error ? error.message : String(error)}`);
+      }
+
       if (timelineProjectId.current === project.id) await refreshTimeline(project);
       await refreshProjectSnapshot(project.rootPath, project.id);
 
