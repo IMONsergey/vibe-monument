@@ -1,6 +1,6 @@
 [package]
 name = "monument"
-version = "0.2.0-alpha.8"
+version = "0.2.0-alpha.10"
 description = "Product-first Codex development workspace"
 authors = ["Monument contributors"]
 edition = "2021"
