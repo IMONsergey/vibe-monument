@@ -120,6 +120,8 @@ function normalizeSelection(value: unknown): EditorSelection | null {
   const id = clipped(source.id, 180) || null;
   return {
     nodeId,
+    directText: clipped(source.directText, 1200),
+    directTextTruncated: source.directTextTruncated === true,
     url: clipped(source.url, 2048),
     viewport: {
       width: finite(viewport.width),
