@@ -191,15 +191,56 @@ fn token_boundary(byte: Option<u8>) -> bool {
     byte.is_none_or(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'-' | b'_'))
 }
 
+fn ascii_var_function_at(bytes: &[u8], offset: usize) -> bool {
+    bytes.get(offset).is_some_and(|byte| byte.eq_ignore_ascii_case(&b'v'))
+        && bytes.get(offset + 1).is_some_and(|byte| byte.eq_ignore_ascii_case(&b'a'))
+        && bytes.get(offset + 2).is_some_and(|byte| byte.eq_ignore_ascii_case(&b'r'))
+        && bytes.get(offset + 3) == Some(&b'(')
+}
+
+fn skip_var_trivia(bytes: &[u8], mut offset: usize) -> Option<usize> {
+    loop {
+        while bytes.get(offset).is_some_and(|byte| byte.is_ascii_whitespace()) {
+            offset += 1;
+        }
+        if bytes.get(offset) != Some(&b'/') || bytes.get(offset + 1) != Some(&b'*') {
+            return Some(offset);
+        }
+        offset += 2;
+        let mut closed = false;
+        while offset + 1 < bytes.len() {
+            if bytes[offset] == b'*' && bytes[offset + 1] == b'/' {
+                offset += 2;
+                closed = true;
+                break;
+            }
+            offset += 1;
+        }
+        if !closed {
+            return None;
+        }
+    }
+}
+
 fn exact_usage_offsets(content: &str, token: &str) -> Vec<usize> {
-    let needle = format!("var({token}");
-    content
-        .match_indices(&needle)
-        .filter_map(|(offset, _)| {
-            let token_end = offset + needle.len();
-            token_boundary(content.as_bytes().get(token_end).copied()).then_some(offset)
-        })
-        .collect()
+    let bytes = content.as_bytes();
+    let token_bytes = token.as_bytes();
+    let mut offsets = Vec::new();
+    let mut offset = 0usize;
+    while offset + 4 <= bytes.len() {
+        if ascii_var_function_at(bytes, offset) {
+            if let Some(token_start) = skip_var_trivia(bytes, offset + 4) {
+                let token_end = token_start.saturating_add(token_bytes.len());
+                if bytes.get(token_start..token_end) == Some(token_bytes)
+                    && token_boundary(bytes.get(token_end).copied())
+                {
+                    offsets.push(offset);
+                }
+            }
+        }
+        offset += 1;
+    }
+    offsets
 }
 
 fn inspect(root: &Path, token: &str) -> Result<TokenScopeInspection, String> {
@@ -335,6 +376,20 @@ mod tests {
         assert_eq!(result.definition_count, 1);
         assert_eq!(result.usage_count, 2);
         assert!(result.recommendation.contains("Never mutate it implicitly"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn counts_valid_var_whitespace_comments_and_case() {
+        let root = fixture();
+        fs::write(
+            root.join("tokens.css"),
+            ":root { --space: 8px; }\n.a { gap: var( --space ); }\n.b { gap: VAR(/* scope */ --space); }\n.c { gap: var(--space-large); }\n",
+        )
+        .expect("write");
+        let result = inspect(&root, "--space").expect("inspect");
+        assert_eq!(result.definition_count, 1);
+        assert_eq!(result.usage_count, 2);
         let _ = fs::remove_dir_all(root);
     }
 
