@@ -80,24 +80,29 @@ if (guard.includes('sh -c') || guard.includes('bash -c') || guard.includes('Rege
 }
 
 for (const token of [
+  'enforce_stylesheet_precedence',
+  'project_source_transaction_preview',
+  'Tailwind direct write blocked by CSS ownership',
   'enforce_tailwind_conflict_guard',
   'project_markup_conflict_guard',
   'let resolved = resolve(&root, &selection, &change)?;',
-  'Source changed while validating the Tailwind conflict guard',
+  'Source changed while validating markup write authority',
   'fingerprint(&content) != expected_fingerprint',
   'write_atomic(&canonical, &content)?',
+  'native_commit_refuses_competing_css_owner_after_markup_resolution',
   'native_commit_refuses_hidden_size_competitor_after_v2_resolution',
   'native_commit_preserves_safe_tailwind_write',
 ]) {
   if (!hardened.includes(token)) throw new Error(`Native hardened commit boundary missing ${token}`);
 }
 const nativeResolve = hardened.indexOf('let resolved = resolve(&root, &selection, &change)?;');
-const nativeGuard = hardened.indexOf('enforce_tailwind_conflict_guard(', nativeResolve + 1);
+const nativeCss = hardened.indexOf('enforce_stylesheet_precedence(', nativeResolve + 1);
+const nativeGuard = hardened.indexOf('enforce_tailwind_conflict_guard(', nativeCss + 1);
 const nativeRead = hardened.indexOf('let mut content = fs::read_to_string', nativeGuard);
 const nativeFingerprint = hardened.indexOf('fingerprint(&content) != expected_fingerprint', nativeRead);
 const nativeWrite = hardened.indexOf('write_atomic(&canonical, &content)?', nativeFingerprint);
-if (!(nativeResolve >= 0 && nativeGuard > nativeResolve && nativeRead > nativeGuard && nativeFingerprint > nativeRead && nativeWrite > nativeFingerprint)) {
-  throw new Error('Native markup commit must resolve, guard, re-read/fingerprint, then atomically write in that order');
+if (!(nativeResolve >= 0 && nativeCss > nativeResolve && nativeGuard > nativeCss && nativeRead > nativeGuard && nativeFingerprint > nativeRead && nativeWrite > nativeFingerprint)) {
+  throw new Error('Native markup commit must resolve, enforce CSS precedence, guard Tailwind conflicts, re-read/fingerprint, then atomically write');
 }
 
 for (const token of [
