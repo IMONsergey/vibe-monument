@@ -124,12 +124,12 @@ export async function captureBrowserEvidence(projectId: string, turnSerial: numb
   const record: BrowserEvidenceRecord = {
     projectId,
     snapshot,
-    stale: resolvedTurnSerial <= 0,
+    stale: resolvedTurnSerial === 0,
     capturedForTurnSerial: resolvedTurnSerial,
   };
   emit(record);
   await stateSet(evidenceKey(projectId), record).catch(() => undefined);
-  if (resolvedTurnSerial > 0) {
+  if (resolvedTurnSerial !== 0) {
     await recordTimelineBrowserQuality(
       projectId,
       resolvedTurnSerial,
