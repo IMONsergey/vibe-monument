@@ -108,24 +108,29 @@ test('independent native guard catches Tailwind multi-property competitors', () 
   assert.ok(!guard.includes('bash -c'));
 });
 
-test('native commit binds exact v2 ownership and conflict veto before fingerprinted atomic write', () => {
+test('native commit binds CSS precedence and Tailwind conflict veto before fingerprinted atomic write', () => {
   for (const token of [
+    'enforce_stylesheet_precedence',
+    'project_source_transaction_preview',
+    'Tailwind direct write blocked by CSS ownership',
     'enforce_tailwind_conflict_guard',
     'project_markup_conflict_guard',
     'let resolved = resolve(&root, &selection, &change)?;',
-    'Source changed while validating the Tailwind conflict guard',
+    'Source changed while validating markup write authority',
     'fingerprint(&content) != expected_fingerprint',
     'write_atomic(&canonical, &content)?',
+    'native_commit_refuses_competing_css_owner_after_markup_resolution',
     'native_commit_refuses_hidden_size_competitor_after_v2_resolution',
     'native_commit_preserves_safe_tailwind_write',
   ]) assert.ok(hardened.includes(token), `hardened native commit missing ${token}`);
 
   const resolve = hardened.indexOf('let resolved = resolve(&root, &selection, &change)?;');
-  const guardCall = hardened.indexOf('enforce_tailwind_conflict_guard(', resolve + 1);
+  const css = hardened.indexOf('enforce_stylesheet_precedence(', resolve + 1);
+  const guardCall = hardened.indexOf('enforce_tailwind_conflict_guard(', css + 1);
   const reread = hardened.indexOf('let mut content = fs::read_to_string', guardCall);
   const fingerprint = hardened.indexOf('fingerprint(&content) != expected_fingerprint', reread);
   const write = hardened.indexOf('write_atomic(&canonical, &content)?', fingerprint);
-  assert.ok(resolve >= 0 && guardCall > resolve && reread > guardCall && fingerprint > reread && write > fingerprint);
+  assert.ok(resolve >= 0 && css > resolve && guardCall > css && reread > guardCall && fingerprint > reread && write > fingerprint);
 });
 
 test('JSX inline style direct editing refuses dynamic ownership and outranks Tailwind', () => {
