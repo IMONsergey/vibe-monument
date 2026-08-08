@@ -27,9 +27,9 @@ jobs:
         working-directory: apps/desktop
     env:
       APPLE_SIGNING_IDENTITY: '-'
-      MONUMENT_VERSION: '0.2.0-alpha.7'
-      RELEASE_TAG: 'monument-v0.2.0-alpha.7-intel'
-      RELEASE_ASSET: 'Monument-0.2.0-alpha.7-Intel-x86_64.dmg'
+      MONUMENT_VERSION: '0.2.0-alpha.8'
+      RELEASE_TAG: 'monument-v0.2.0-alpha.8-intel'
+      RELEASE_ASSET: 'Monument-0.2.0-alpha.8-Intel-x86_64.dmg'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,34 +112,42 @@ jobs:
         run: |
           echo publish > /tmp/monument-release-stage
           cat > /tmp/monument-release-notes.md <<'EOF'
-          Monument 0.2.0 Alpha 7 — Fresh Review + Ship — Intel Mac
+          Monument 0.2.0 Alpha 8 — Visual Editor M1 — Intel Mac
 
-          Product-first Codex workspace for Intel Macs with independent generation-bound review and a real evidence-based Ship gate.
+          First source-native Framer-class visual editing release on Monument's real running product.
 
-          Core workflow:
-          - open a real local project and run its actual dev server inside Monument;
-          - work with real Codex threads, streaming turns, interrupt, approvals and inline questions;
-          - Select (`I`) any element in the live product and attach real DOM/accessibility/style/source context to the next prompt;
-          - use Version Timeline for reversible saved generations and alternative paths;
-          - run deterministic project checks plus privacy-bounded Browser Evidence for the exact current generation;
-          - repair failed evidence through one-click Fix with Monument or bounded optional Auto Repair;
-          - queue additional prompts while work/post-turn verification is active;
-          - run Fresh Review in a separate ephemeral read-only Codex process with no implementer conversation history;
-          - inspect blocker/high/medium/low findings, fix them with Monument, or explicitly waive eligible non-blocking findings;
-          - Ship becomes Ready only when saved-version, evidence, review, queue and agent-state gates all agree;
-          - after Ready, review the exact Git file plan and create an explicit local commit. Push/PR remains a separate action.
+          Visual Editor M1:
+          - `✦ Edit` opens a real editor mode around the native live preview;
+          - live Layers tree is projected from the actual rendered DOM, not a second document model;
+          - canvas hover/click and Layers hover/select are bidirectional;
+          - Properties shows real computed runtime values;
+          - editable drafts cover text, size/min/max, display/position, Flex/Grid, spacing, typography, color/background, border/radius/shadow, opacity/overflow/z-index;
+          - source ownership is shown as Likely / Possible / Weak / Unknown rather than fabricated source certainty;
+          - Apply sends bounded property deltas and the live selection through the existing Prompt Queue → source hints → Codex → normal approvals → real source → Timeline/evidence pipeline;
+          - HMR refreshes the selected runtime properties after real source changes;
+          - direct text editing is disabled when the complete text exceeds the bounded 1200-character editor field, preventing truncation/data loss;
+          - Apply failures keep the draft instead of pretending the source update was queued.
 
-          Fresh Review / Ship trust boundaries:
-          - reviewer runs in a Monument-owned scratch directory, not repository cwd;
-          - review input/output/stderr/findings are bounded and review has a hard timeout;
-          - stale/missing evidence never becomes a pass;
-          - blocker review findings cannot be waived;
-          - local Ship refuses to mix a pre-staged Git index;
-          - Ship stages only the exact reviewed plan with `git add -- <paths>`;
-          - repository commit hooks are respected; Monument never uses `--no-verify`;
-          - no hidden push, PR or deployment network action is performed.
+          Visual editor trust boundary:
+          - Monument app commands are explicitly permissioned through the Tauri app command manifest;
+          - the privileged capability is scoped to the bundled `main` webview;
+          - loopback `monument-preview` gets a separate remote capability with exactly one data-ingest command;
+          - preview gets no generic filesystem, process, Git, Codex or system command permission;
+          - bridge verifies the preview webview label and accepts only bounded `tree / selection / hover / ready` data;
+          - Layers are bounded to 600 meaningful nodes / depth 18;
+          - session node ids live in WeakMap/Map only and are not persisted into the user's DOM;
+          - all preview selection context is normalized and bounded before it can enter a Codex prompt;
+          - editor overlay mutations are excluded from DOM refresh observation to prevent feedback loops;
+          - source code remains the only durable truth; M1 creates no preview-only CSS database.
 
-          Existing product foundations remain included: Select/Inspect, Prompt Queue, Browser Evidence, Version Timeline, bounded Repair, Codex approvals/auth and local SQLite state.
+          Existing product foundations remain included:
+          - real Codex threads, streaming, interrupt, approvals, questions and ChatGPT auth;
+          - Select/Inspect and source hints;
+          - Version Timeline with reversible source history;
+          - deterministic checks, Browser Evidence and bounded Repair;
+          - persistent Prompt Queue;
+          - independent Fresh Review;
+          - evidence-based Ship Gate and explicit local Git commit.
 
           Requirements:
           - Intel Mac (x86_64, including Intel Core i9);
@@ -150,9 +158,9 @@ jobs:
           EOF
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$RELEASE_TAG" --title 'Monument 0.2.0 Alpha 7 — Fresh Review + Ship — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --title 'Monument 0.2.0 Alpha 8 — Visual Editor M1 — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --target "$GITHUB_SHA" --title 'Monument 0.2.0 Alpha 7 — Fresh Review + Ship — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+            gh release create "$RELEASE_TAG" "$GITHUB_WORKSPACE/$RELEASE_ASSET" "$GITHUB_WORKSPACE/$RELEASE_ASSET.sha256" --target "$GITHUB_SHA" --title 'Monument 0.2.0 Alpha 8 — Visual Editor M1 — Intel Mac' --notes-file /tmp/monument-release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url > /tmp/monument-release-url
 
