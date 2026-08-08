@@ -16,6 +16,7 @@ mod timeline_cursor;
 mod timeline_runtime;
 mod timeline_secure;
 mod verification_runtime;
+mod visual_source;
 
 #[cfg(test)]
 mod timeline_git_contract_tests;
@@ -36,6 +37,7 @@ use timeline_cursor::timeline_set_active_path;
 use timeline_runtime::{timeline_diff, timeline_init, timeline_list, timeline_snapshot, timeline_status, TimelineRuntime};
 use timeline_secure::{timeline_back_safe, timeline_forward_safe, timeline_restore_safe};
 use verification_runtime::{verification_plan, verification_run};
+use visual_source::{visual_source_apply, visual_source_plan};
 use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -54,6 +56,8 @@ pub fn run() {
             project_open,
             project_inspect,
             project_source_hints,
+            visual_source_plan,
+            visual_source_apply,
             runtime_start,
             runtime_status,
             runtime_stop,
