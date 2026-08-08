@@ -1,5 +1,5 @@
 import { invokeNative, listenNative, stateGet, stateSet } from '../host/native';
-import { currentTimelineTurnSerial } from '../timeline/controller';
+import { currentTimelineCheckpoint, currentTimelineTurnSerial } from '../timeline/controller';
 import { recordTimelineBrowserQuality } from '../timeline/quality';
 
 export interface BrowserConsoleEvent {
@@ -46,6 +46,7 @@ export interface BrowserEvidenceRecord {
   projectId: string;
   snapshot: BrowserEvidenceSnapshot;
   stale: boolean;
+  capturedForCheckpointId: string | null;
   capturedForTurnSerial: number;
 }
 
@@ -91,8 +92,16 @@ export async function clearBrowserEvidenceBuffer(): Promise<void> {
   await invokeNative<void>('preview_clear_browser_evidence');
 }
 
-export async function captureBrowserEvidence(projectId: string, turnSerial: number): Promise<BrowserEvidenceRecord> {
-  const resolvedTurnSerial = (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial)) ?? 0;
+export async function captureBrowserEvidence(
+  projectId: string,
+  turnSerial: number,
+  checkpointId: string | null = null,
+): Promise<BrowserEvidenceRecord> {
+  const checkpoint = await currentTimelineCheckpoint(projectId).catch(() => null);
+  const resolvedCheckpointId = checkpointId ?? checkpoint?.id ?? null;
+  const resolvedTurnSerial = checkpoint?.turnSerial
+    ?? (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial))
+    ?? 0;
   let unlisten: (() => void) | null = null;
   let timeout: number | null = null;
   const snapshot = await new Promise<BrowserEvidenceSnapshot>(async (resolve, reject) => {
@@ -124,7 +133,8 @@ export async function captureBrowserEvidence(projectId: string, turnSerial: numb
   const record: BrowserEvidenceRecord = {
     projectId,
     snapshot,
-    stale: resolvedTurnSerial <= 0,
+    stale: !resolvedCheckpointId,
+    capturedForCheckpointId: resolvedCheckpointId,
     capturedForTurnSerial: resolvedTurnSerial,
   };
   emit(record);
