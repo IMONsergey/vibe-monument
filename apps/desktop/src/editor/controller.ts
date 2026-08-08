@@ -2,6 +2,7 @@ import { invokeNative, listenNative } from '../host/native';
 import type { PreviewSelection } from '../preview/selection';
 import type {
   EditorBridgeMessage,
+  EditorContentAttributes,
   EditorLayer,
   EditorLayerKind,
   EditorSelection,
@@ -12,8 +13,10 @@ import type {
 const MAX_LAYERS = 600;
 const MAX_TEXT = 220;
 const MAX_SELECTOR = 1200;
+const MAX_CONTENT_ATTRIBUTE = 800;
 const NODE_ID = /^m-\d{1,12}$/;
 const LAYER_KINDS = new Set<EditorLayerKind>(['container', 'text', 'media', 'control', 'element']);
+const EMPTY_CONTENT_ATTRIBUTES: EditorContentAttributes = { ariaLabel: '', title: '', alt: '', placeholder: '' };
 
 type Listener = (state: VisualEditorState) => void;
 
@@ -33,6 +36,12 @@ function record(value: unknown): Record<string, unknown> {
 
 function clipped(value: unknown, limit = MAX_TEXT): string {
   return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, limit) : '';
+}
+
+function boundedString(value: unknown, limit: number): string {
+  return typeof value === 'string'
+    ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, limit)
+    : '';
 }
 
 function finite(value: unknown, fallback = 0): number {
@@ -122,6 +131,8 @@ function normalizeSelection(value: unknown): EditorSelection | null {
     nodeId,
     directText: clipped(source.directText, 1200),
     directTextTruncated: source.directTextTruncated === true,
+    contentAttributes: { ...EMPTY_CONTENT_ATTRIBUTES },
+    contentReady: false,
     url: clipped(source.url, 2048),
     viewport: {
       width: finite(viewport.width),
@@ -152,6 +163,22 @@ function normalizeSelection(value: unknown): EditorSelection | null {
   };
 }
 
+function normalizeContent(value: unknown): { domId: string; attributes: EditorContentAttributes } | null {
+  const source = record(value);
+  const domId = boundedString(source.domId, 180);
+  if (!domId) return null;
+  const attributes = record(source.attributes);
+  return {
+    domId,
+    attributes: {
+      ariaLabel: boundedString(attributes.ariaLabel, MAX_CONTENT_ATTRIBUTE),
+      title: boundedString(attributes.title, MAX_CONTENT_ATTRIBUTE),
+      alt: boundedString(attributes.alt, MAX_CONTENT_ATTRIBUTE),
+      placeholder: boundedString(attributes.placeholder, MAX_CONTENT_ATTRIBUTE),
+    },
+  };
+}
+
 function publish(patch: Partial<VisualEditorState>): VisualEditorState {
   state = { ...state, ...patch };
   for (const listener of listeners) listener(state);
@@ -167,14 +194,7 @@ export function subscribeVisualEditor(listener: Listener): () => void {
 }
 
 export function resetVisualEditorPreview(): void {
-  publish({
-    active: false,
-    ready: false,
-    tree: null,
-    selection: null,
-    selectedNodeId: null,
-    hoveredNodeId: null,
-  });
+  publish({ active: false, ready: false, tree: null, selection: null, selectedNodeId: null, hoveredNodeId: null });
 }
 
 export async function startVisualEditorBridge(): Promise<() => void> {
@@ -197,6 +217,14 @@ export async function startVisualEditorBridge(): Promise<() => void> {
       const selection = normalizeSelection(message.payload);
       if (!selection) return;
       publish({ selection, selectedNodeId: selection.nodeId });
+      if (selection.id && selection.idUnique) void requestEditorContent(selection.id).catch(() => undefined);
+      return;
+    }
+    if (message.kind === 'content') {
+      const content = normalizeContent(message.payload);
+      const current = state.selection;
+      if (!content || !current || !current.id || current.id !== content.domId || !current.idUnique) return;
+      publish({ selection: { ...current, contentAttributes: content.attributes, contentReady: true } });
       return;
     }
     if (message.kind === 'hover') {
@@ -222,6 +250,10 @@ export async function setVisualEditorActive(active: boolean): Promise<void> {
 
 export async function requestEditorTree(): Promise<void> {
   await invokeNative<void>('preview_editor_request_tree');
+}
+
+export async function requestEditorContent(domId: string): Promise<void> {
+  await invokeNative<void>('preview_editor_request_content', { domId });
 }
 
 export async function selectEditorNode(nodeId: string): Promise<void> {
