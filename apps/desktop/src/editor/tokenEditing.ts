@@ -35,6 +35,13 @@ export interface VisualTokenEditProbe {
   instanceEligible: boolean;
 }
 
+interface TokenScopeInspection {
+  token: string;
+  definitionCount: number;
+  usageCount: number;
+  truncated: boolean;
+}
+
 export type VisualTokenEditDecision =
   | { mode: 'instance' }
   | { mode: 'token'; definition: VisualTokenDefinition; confirmSharedGlobal: boolean }
@@ -107,6 +114,10 @@ function nativeDecision(decision: Exclude<VisualTokenEditDecision, { mode: 'code
   };
 }
 
+async function inspectTokenScope(projectPath: string, token: string): Promise<TokenScopeInspection | null> {
+  return invokeNative<TokenScopeInspection>('project_token_scope_inspect', { projectPath, token }).catch(() => null);
+}
+
 export function tokenDecisionKey(decision: VisualTokenEditDecision): string {
   if (decision.mode === 'instance' || decision.mode === 'codex') return decision.mode;
   return `token:${decision.definition.path}:${decision.definition.line}:${decision.definition.selector}`;
@@ -123,12 +134,11 @@ export function defaultTokenDecision(probe: VisualTokenEditProbe): VisualTokenEd
 }
 
 export function tokenDecisionRequiresGlobalConfirmation(
-  probe: VisualTokenEditProbe,
+  _probe: VisualTokenEditProbe,
   decision: VisualTokenEditDecision,
 ): boolean {
   return decision.mode === 'token'
     && decision.definition.scope === 'global'
-    && probe.usageCount > 1
     && !decision.confirmSharedGlobal;
 }
 
@@ -139,11 +149,29 @@ export async function probeVisualTokenEdit(
   if (!change.property || change.property === 'textContent') return null;
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) return null;
-  return invokeNative<VisualTokenEditProbe>('project_token_edit_probe', {
+  const probe = await invokeNative<VisualTokenEditProbe>('project_token_edit_probe', {
     projectPath,
     selection: transactionSelection(selection),
     change: tokenChange(change),
   }).catch(() => null);
+  if (!probe?.eligible || !probe.token) return probe;
+
+  // The transaction resolver and the generic token inspector intentionally use separate native
+  // paths. Use the conservative union for the product blast-radius signal so a parser edge case
+  // cannot silently reduce what the user sees before choosing a material scope.
+  const scope = await inspectTokenScope(projectPath, probe.token);
+  if (!scope) return probe;
+  const usageCount = Math.max(probe.usageCount, scope.usageCount);
+  const definitionCount = Math.max(probe.definitionCount, scope.definitionCount);
+  return {
+    ...probe,
+    usageCount,
+    definitionCount,
+    truncated: probe.truncated || scope.truncated,
+    reason: usageCount > probe.usageCount
+      ? `${probe.reason} Independent scope scan observed ${usageCount} source references.`
+      : probe.reason,
+  };
 }
 
 export async function previewVisualTokenTransaction(
@@ -166,10 +194,15 @@ export async function commitVisualTokenTransaction(
   change: VisualPropertyChange,
   decision: Exclude<VisualTokenEditDecision, { mode: 'codex' }>,
 ): Promise<VisualTokenTransactionCommit> {
-  return invokeNative<VisualTokenTransactionCommit>('project_token_transaction_commit', {
+  const commit = await invokeNative<VisualTokenTransactionCommit>('project_token_transaction_commit', {
     projectPath,
     selection: transactionSelection(selection),
     change: tokenChange(change),
     decision: nativeDecision(decision),
   });
+  if (!commit.token) return commit;
+  const scope = await inspectTokenScope(projectPath, commit.token);
+  return scope
+    ? { ...commit, affectedUsageCount: Math.max(commit.affectedUsageCount, scope.usageCount) }
+    : commit;
 }
