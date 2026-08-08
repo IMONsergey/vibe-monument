@@ -41,6 +41,17 @@ test('direct source mutation becomes one checkpoint with checkpoint-bound eviden
   assert.ok(repair.includes("['codex-turn', 'source-transaction'].includes(evidence.trigger)"));
 });
 
+test('checkpoint failure triggers a proved reverse source transaction instead of leaving dirty source silently', () => {
+  for (const token of [
+    'rollbackDirectVisualSource',
+    'before: prepared.change.after',
+    'after: prepared.change.before',
+    'const rolledBack = await rollbackDirectVisualSource(prepared, result)',
+    'automatic rollback could not be proven',
+    'Monument restored the original source value',
+  ]) assert.ok(app.includes(token), `direct-edit rollback invariant missing ${token}`);
+});
+
 test('App freshness and queue override use checkpoint identity, never turn identity', () => {
   for (const token of [
     'verificationProgress.evidence.checkpointId !== currentCheckpointId',
