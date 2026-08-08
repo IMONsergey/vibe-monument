@@ -6,6 +6,7 @@ mod process_runtime;
 mod project_runtime;
 mod review_diff;
 mod review_runtime;
+mod review_source;
 mod source_locator;
 mod system_runtime;
 mod timeline_cursor;
@@ -23,6 +24,7 @@ use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntim
 use project_runtime::{project_inspect, project_open};
 use review_diff::timeline_review_packet;
 use review_runtime::review_run;
+use review_source::timeline_review_source_context;
 use source_locator::project_source_hints;
 use system_runtime::system_open_external;
 use timeline_cursor::timeline_set_active_path;
@@ -68,6 +70,7 @@ pub fn run() {
             timeline_forward_safe,
             timeline_diff,
             timeline_review_packet,
+            timeline_review_source_context,
             timeline_set_active_path,
             review_run,
             system_open_external,
