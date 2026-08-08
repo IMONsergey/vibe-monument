@@ -14,6 +14,7 @@ const APP_COMMANDS: &[&str] = &[
     "project_token_transaction_preview",
     "project_token_transaction_commit",
     "project_markup_edit_probe",
+    "project_markup_conflict_guard",
     "project_markup_transaction_preview",
     "project_markup_transaction_commit",
     "runtime_start",
