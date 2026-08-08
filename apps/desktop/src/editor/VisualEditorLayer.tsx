@@ -76,8 +76,8 @@ export function VisualEditorLayer() {
     void setVisualEditorActive(false).catch(() => undefined);
   }, []);
 
-  const applyProperties = useCallback(async (changes: VisualPropertyChange[]) => {
-    if (!editor.selection || applying) return;
+  const applyProperties = useCallback(async (changes: VisualPropertyChange[]): Promise<boolean> => {
+    if (!editor.selection || applying) return false;
     setApplying(true);
     setApplyMessage(null);
     try {
@@ -87,9 +87,10 @@ export function VisualEditorLayer() {
         : result.queuedCount > 1
           ? `Queued · ${result.queuedCount} pending`
           : 'Queued for source update');
+      return true;
     } catch (error) {
       setApplyMessage(error instanceof Error ? error.message : String(error));
-      throw error;
+      return false;
     } finally {
       setApplying(false);
     }
