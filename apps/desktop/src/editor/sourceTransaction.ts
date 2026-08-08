@@ -87,15 +87,29 @@ export function registerVisualSourceCoordinator(next: VisualSourceCoordinator): 
   };
 }
 
+function selectorNeedsDeeperParsing(selector: string): boolean {
+  // Native CSS v1 already refuses comma/pseudo ambiguity. Until native selector ownership
+  // is a full parser, also keep attribute selectors on the Codex path so strings such as
+  // [href="#hero"] can never be mistaken for an actual #hero ID owner.
+  return selector.includes('[') || selector.includes(']');
+}
+
 export async function planVisualSourceEdit(
   selection: EditorSelection,
   changes: VisualPropertyChange[],
 ): Promise<VisualSourcePlanDecision> {
   if (!coordinator) return { kind: 'fallback', reason: 'Direct source editing is not ready in this workspace.' };
-  return coordinator.plan(selection, changes);
+  const decision = await coordinator.plan(selection, changes);
+  if (decision.kind === 'deterministic' && selectorNeedsDeeperParsing(decision.prepared.plan.selector)) {
+    return { kind: 'fallback', reason: 'Attribute-selector ownership needs deeper source parsing, so Monument will use Codex for this edit.' };
+  }
+  return decision;
 }
 
 export async function commitVisualSourceEdit(prepared: PreparedVisualSourceEdit): Promise<VisualSourceCommitResult> {
   if (!coordinator) throw new Error('Direct source editing is no longer available. Re-plan the edit.');
+  if (selectorNeedsDeeperParsing(prepared.plan.selector)) {
+    throw new Error('This source selector is no longer eligible for deterministic editing. Re-plan with Codex.');
+  }
   return coordinator.commit(prepared);
 }
