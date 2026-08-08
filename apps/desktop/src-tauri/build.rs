@@ -19,6 +19,7 @@ const APP_COMMANDS: &[&str] = &[
     "preview_reload",
     "preview_close",
     "preview_editor_emit",
+    "preview_editor_set_active",
     "preview_editor_request_tree",
     "preview_editor_select",
     "preview_editor_hover",
