@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { EditorSourceOwnership } from './ownership';
 import type { VisualPropertyChange } from './intent';
+import {
+  defaultTokenDecision,
+  probeVisualTokenEdit,
+  tokenDecisionKey,
+  tokenDecisionRequiresGlobalConfirmation,
+  type VisualTokenEditDecision,
+  type VisualTokenEditProbe,
+} from './tokenEditing';
 import type { EditorLayer, EditorSelection } from './types';
 
 type PropertySpec = { label: string; key: string; editable?: boolean; wide?: boolean };
@@ -98,18 +106,134 @@ function PropertyGroup({ group, selection, draft, onChange }: {
   );
 }
 
+function TokenScopeCard({ probe, change, decision, onDecision }: {
+  probe: VisualTokenEditProbe;
+  change: VisualPropertyChange;
+  decision: VisualTokenEditDecision;
+  onDecision: (decision: VisualTokenEditDecision) => void;
+}) {
+  const localDefinitions = probe.definitions.filter((definition) => definition.scope === 'scoped' && definition.selectedScope);
+  const globalDefinitions = probe.definitions.filter((definition) => definition.scope === 'global');
+  const currentKey = tokenDecisionKey(decision);
+  const selectedDefinition = decision.mode === 'token' ? decision.definition : null;
+  const globalConfirmationRequired = tokenDecisionRequiresGlobalConfirmation(probe, decision);
+  const beforeLine = decision.mode === 'instance'
+    ? `${probe.source?.property || change.property}: ${probe.source?.sourceValue || probe.token}`
+    : decision.mode === 'token'
+      ? `${probe.token}: ${decision.definition.value}`
+      : null;
+  const afterLine = decision.mode === 'instance'
+    ? `${probe.source?.property || change.property}: ${change.after}`
+    : decision.mode === 'token'
+      ? `${probe.token}: ${change.after}`
+      : null;
+
+  return (
+    <section className="property-token-card">
+      <div className="property-token-head">
+        <div><span className="property-token-badge">Token-backed</span><strong>{probe.token}</strong></div>
+        <span>{probe.usageCount} usage{probe.usageCount === 1 ? '' : 's'}</span>
+      </div>
+      <div className="property-token-source">
+        <code>{probe.source?.path}:{probe.source?.line}</code>
+        <span>{probe.reason}</span>
+      </div>
+
+      <div className="property-token-choice-title">Change scope</div>
+      <div className="property-token-choices">
+        <button
+          type="button"
+          className={currentKey === 'instance' ? 'selected' : ''}
+          disabled={!probe.instanceEligible}
+          onClick={() => onDecision({ mode: 'instance' })}
+        >
+          <strong>This element</strong>
+          <span>Detach from {probe.token} and write a literal only in the proven selected rule.</span>
+        </button>
+
+        {localDefinitions.map((definition) => {
+          const next: VisualTokenEditDecision = { mode: 'token', definition, confirmSharedGlobal: false };
+          return (
+            <button
+              type="button"
+              className={currentKey === tokenDecisionKey(next) ? 'selected' : ''}
+              key={`local:${definition.path}:${definition.line}:${definition.selector}`}
+              onClick={() => onDecision(next)}
+            >
+              <strong>Local scope · {definition.selector}</strong>
+              <span>{definition.path}:{definition.line} · current {definition.value}</span>
+            </button>
+          );
+        })}
+
+        {globalDefinitions.map((definition) => {
+          const next: VisualTokenEditDecision = { mode: 'token', definition, confirmSharedGlobal: false };
+          return (
+            <button
+              type="button"
+              className={currentKey === tokenDecisionKey(next) ? 'selected global' : 'global'}
+              key={`global:${definition.path}:${definition.line}:${definition.selector}`}
+              onClick={() => onDecision(next)}
+            >
+              <strong>Global token</strong>
+              <span>{definition.path}:{definition.line} · affects up to {probe.usageCount} proven usage{probe.usageCount === 1 ? '' : 's'}</span>
+            </button>
+          );
+        })}
+
+        <button
+          type="button"
+          className={currentKey === 'codex' ? 'selected' : ''}
+          onClick={() => onDecision({ mode: 'codex' })}
+        >
+          <strong>Use Codex</strong>
+          <span>Keep the existing source-aware reasoning path for this edit.</span>
+        </button>
+      </div>
+
+      {selectedDefinition?.scope === 'global' && probe.usageCount > 1 ? (
+        <label className={`property-token-confirm ${globalConfirmationRequired ? 'required' : ''}`}>
+          <input
+            type="checkbox"
+            checked={decision.mode === 'token' && decision.confirmSharedGlobal}
+            onChange={(event) => {
+              if (decision.mode === 'token') onDecision({ ...decision, confirmSharedGlobal: event.target.checked });
+            }}
+          />
+          <span>I understand this changes the shared token for {probe.usageCount} proven usage{probe.usageCount === 1 ? '' : 's'}.</span>
+        </label>
+      ) : null}
+
+      {beforeLine && afterLine ? (
+        <div className="property-token-diff" aria-label="Source preview">
+          <div><span>−</span><code>{beforeLine}</code></div>
+          <div><span>+</span><code>{afterLine}</code></div>
+        </div>
+      ) : null}
+
+      {probe.truncated ? <div className="property-token-warning">The bounded token scan was truncated. Deterministic token mutation is disabled; use Codex.</div> : null}
+    </section>
+  );
+}
+
 export function PropertiesPanel({ selection, layer, ownership, applying, applyMessage, onApply }: {
   selection: EditorSelection | null;
   layer: EditorLayer | null;
   ownership: EditorSourceOwnership | null;
   applying: boolean;
   applyMessage: string | null;
-  onApply: (changes: VisualPropertyChange[]) => Promise<boolean>;
+  onApply: (changes: VisualPropertyChange[], tokenDecision?: VisualTokenEditDecision) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(selection, layer));
+  const [tokenProbe, setTokenProbe] = useState<VisualTokenEditProbe | null>(null);
+  const [tokenDecision, setTokenDecision] = useState<VisualTokenEditDecision | null>(null);
+  const [tokenLoading, setTokenLoading] = useState(false);
 
   useEffect(() => {
     setDraft(initialDraft(selection, layer));
+    setTokenProbe(null);
+    setTokenDecision(null);
+    setTokenLoading(false);
   }, [selection, layer?.text, layer?.editable.text]);
 
   const changes = useMemo<VisualPropertyChange[]>(() => {
@@ -127,11 +251,50 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
       : styleChanges;
   }, [draft, layer, selection]);
 
+  useEffect(() => {
+    setTokenProbe(null);
+    setTokenDecision(null);
+    if (!selection || changes.length !== 1 || changes[0].property === TEXT_KEY) {
+      setTokenLoading(false);
+      return;
+    }
+    let disposed = false;
+    setTokenLoading(true);
+    const timer = window.setTimeout(() => {
+      void probeVisualTokenEdit(selection, changes[0]).then((probe) => {
+        if (disposed) return;
+        if (probe?.eligible) {
+          setTokenProbe(probe);
+          setTokenDecision(defaultTokenDecision(probe));
+        } else {
+          setTokenProbe(null);
+          setTokenDecision(null);
+        }
+      }).finally(() => {
+        if (!disposed) setTokenLoading(false);
+      });
+    }, 180);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [changes, selection]);
+
   const changeDraft = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
-  const reset = () => setDraft(initialDraft(selection, layer));
+  const reset = () => {
+    setDraft(initialDraft(selection, layer));
+    setTokenProbe(null);
+    setTokenDecision(null);
+  };
+  const globalConfirmationRequired = Boolean(tokenProbe && tokenDecision && tokenDecisionRequiresGlobalConfirmation(tokenProbe, tokenDecision));
   const applyChanges = async () => {
-    if (!changes.length || applying) return;
-    if (await onApply(changes)) setDraft(initialDraft(selection, layer));
+    if (!changes.length || applying || tokenLoading || globalConfirmationRequired) return;
+    const decision = tokenProbe ? tokenDecision ?? { mode: 'codex' as const } : undefined;
+    if (await onApply(changes, decision)) {
+      setDraft(initialDraft(selection, layer));
+      setTokenProbe(null);
+      setTokenDecision(null);
+    }
   };
 
   if (!selection) {
@@ -144,6 +307,11 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
   }
 
   const textEditable = canEditText(selection, layer);
+  const applyStatus = applyMessage
+    || (tokenLoading ? 'Inspecting token ownership…'
+      : globalConfirmationRequired ? `Confirm shared ${tokenProbe?.token || 'token'} blast radius`
+        : tokenProbe ? 'Choose a safe source scope, then apply'
+          : changes.length ? 'Ready to update real source' : 'Edit a property above');
 
   return (
     <aside className="visual-properties-panel" aria-label="Properties">
@@ -187,16 +355,25 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
 
         {GROUPS.map((group) => <PropertyGroup key={group.title} group={group} selection={selection} draft={draft} onChange={changeDraft} />)}
 
+        {tokenProbe && tokenDecision && changes.length === 1 ? (
+          <TokenScopeCard
+            probe={tokenProbe}
+            change={changes[0]}
+            decision={tokenDecision}
+            onDecision={setTokenDecision}
+          />
+        ) : null}
+
         <section className="property-source-note">
           <strong>Source-authoritative editing</strong>
-          <span>Apply first attempts a bounded atomic source transaction only when Monument can prove one literal CSS owner. Tokens, responsive scopes, multiple owners, text and structural edits automatically fall back to the normal Codex path. Every direct edit becomes a Version Timeline generation and invalidates prior evidence.</span>
+          <span>Literal owners apply atomically. Token-backed values expose instance/local/global scope and blast radius before mutation. Ambiguous, responsive, structural or unsupported edits keep the normal Codex fallback. Every direct edit becomes a Version Timeline generation and invalidates prior evidence.</span>
         </section>
       </div>
 
       <div className={`property-apply-bar ${changes.length ? 'dirty' : ''}`}>
-        <div><strong>{changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong><span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit a property above')}</span></div>
+        <div><strong>{changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong><span>{applyStatus}</span></div>
         {changes.length ? <button type="button" className="secondary" disabled={applying} onClick={reset}>Reset</button> : null}
-        <button type="button" disabled={!changes.length || applying} onClick={() => void applyChanges()}>{applying ? 'Applying…' : 'Apply'}</button>
+        <button type="button" disabled={!changes.length || applying || tokenLoading || globalConfirmationRequired} onClick={() => void applyChanges()}>{applying ? 'Applying…' : 'Apply'}</button>
       </div>
     </aside>
   );
