@@ -27,13 +27,15 @@ For one visual property Monument routes in this order:
 5. **Static Tailwind direct lane** only when no stronger/ambiguous inline owner, no competing CSS owner and no guard veto exists.
 6. Existing literal CSS/Codex fallback continues normally when markup does not claim/block ownership.
 
-The routing invariant is:
+Routing invariant:
 
 > **token → inline-style cascade safety → CSS-vs-Tailwind precedence → independent Tailwind veto → Tailwind/CSS → Codex**.
 
+Frontend/main applies this model for immediate UX feedback. The final native Tailwind writer independently re-runs the CSS-precedence and multi-property-veto lines before writing.
+
 ## 2. Bounded JSX source model
 
-`jsx_source.rs` is deliberately incomplete. It prefers false negatives to lexical false positives.
+`jsx_source.rs` is deliberately incomplete and prefers false negatives to lexical false positives.
 
 It:
 - bounds opening-tag bytes and attribute count;
@@ -95,29 +97,23 @@ Dynamic composition remains Codex-backed:
 
 ### 5.1 Primary v2 resolver
 
-`markup_transaction_v2.rs` contains the canonical bounded ownership core.
+`markup_transaction_v2.rs` is the canonical bounded markup ownership core.
 
 A utility receives initial deterministic ownership only when:
 - requested visual property belongs to an explicit supported utility family;
-- all source utilities that can affect that family are enumerated conservatively;
+- source utilities that can affect that family are enumerated conservatively;
 - no responsive/state variant exists in the family;
 - no unsupported `!important` semantics exist;
 - exactly one effective candidate remains;
 - exact source utility is present on the selected live element;
 - current source utility semantics are statically provable against runtime;
-- requested value is representable by bounded deterministic output grammar.
+- requested value is representable by bounded output grammar.
 
-M2.3 does **not** assume project Tailwind default theme scales. Theme/config-dependent named utilities such as `gap-4` remain Codex unless their configured semantics are actually proved.
+M2.3 does **not** assume project Tailwind default theme scales. Theme/config-dependent named utilities such as `gap-4` remain Codex unless configured semantics are actually proved.
 
 Bounded arbitrary values such as `gap-[16px] → gap-[24px]` can be direct when source/runtime semantics agree.
 
-The primary resolver rejects first-order conflicts including:
-- `p-*` / `py-*` / `pt-*` for `paddingTop`;
-- `px-*` / `pl-*` for `paddingLeft`;
-- margin shorthand/axis/side combinations;
-- `gap-*` / `gap-x-*` / `gap-y-*`;
-- `overflow-*` axis/base collisions;
-- responsive/state variants in the family.
+The primary resolver rejects first-order conflicts including padding/margin shorthand-axis-side combinations, `gap` axis/base collisions, `overflow` axis/base collisions and same-family responsive/state variants.
 
 ### 5.2 Independent multi-property conflict guard
 
@@ -151,33 +147,39 @@ Production does **not** register raw `markup_transaction_v2` commit authority di
 For a Tailwind write, one native `project_markup_transaction_commit` call performs:
 
 1. canonical project-root resolution;
-2. exact v2 source ownership resolution;
-3. require deterministic operation;
-4. run the independent Tailwind conflict guard **inside native commit authority**;
-5. re-read the target only after the guard;
-6. require the original whole-file fingerprint from v2 resolution;
-7. require exact replacement byte range/source value;
-8. perform one bounded replacement;
-9. reparse bounded JSX opening tags and require the same selected literal id/tag owner to remain structurally valid;
-10. same-directory create-new temp file;
-11. write + flush + `sync_all`;
-12. preserve source permissions;
-13. atomic rename over source.
+2. exact v2 markup ownership resolution;
+3. require deterministic markup operation;
+4. invoke the existing M2.1 `project_source_transaction_preview` **inside native commit authority** for the same property/runtime before/after;
+5. allow Tailwind only when M2.1 returns explicit `mode=codex`; deterministic/assisted CSS ownership or CSS resolver error fails closed;
+6. run the independent Tailwind conflict guard **inside the same native commit**;
+7. re-read the target only after both vetoes;
+8. require the original whole-file fingerprint from v2 resolution;
+9. require exact replacement byte range/source value;
+10. perform one bounded replacement;
+11. reparse bounded JSX opening tags and require the same selected literal id/tag owner to remain structurally valid;
+12. same-directory create-new temp file;
+13. write + flush + `sync_all`;
+14. preserve source permissions;
+15. atomic rename over source.
 
-This closes the previous frontend-guard → writer TOCTOU gap. An external source edit between v2 resolution and guard loses authority at the post-guard fingerprint/range checks.
+This closes both frontend TOCTOU classes:
+- external `.css` ownership introduced after main preflight cannot inherit Tailwind write authority;
+- hidden Tailwind multi-property competitors introduced after main preflight cannot inherit write authority.
 
-Frontend/main still re-runs exact ownership + CSS precedence + conflict guard:
-- during Properties probe;
-- immediately before native dry-run;
-- immediately before native commit;
+Any edit before the post-veto reread invalidates the v2 whole-file fingerprint/range. Frontend checks remain UX only; **native hardened commit is authoritative**.
 
-for early user-facing refusal, but **native hardened commit is authoritative**.
+### 6.2 JSX inline-style commits
 
-### 6.2 Filesystem/trust boundary
+For a deterministic JSX inline-style lane, stylesheet-vs-Tailwind checks are irrelevant because the static inline source itself owns the property. The hardened wrapper therefore preserves the v2 inline-style operation and skips Tailwind-only CSS/guard vetoes, while still enforcing fingerprint/range/structural/atomic-write safety.
 
-Commit also requires:
+### 6.3 Filesystem/trust boundary
+
+Commit requires:
 - regular non-symlink target via `symlink_metadata`;
-- canonical target contained inside canonical project root;
+- canonical target inside canonical project root;
+- exact whole-file fingerprint after vetoes;
+- exact source range/value;
+- bounded JSX structural reparse;
 - no blind regex replacement;
 - no interpolated shell;
 - no preview source-write permission.
@@ -228,15 +230,15 @@ M2.3 adds `sourceLane` / `ownerKind` metadata but no separate history model.
 
 The exact-head contract locks:
 - `markup_transaction_hardened.rs` is the production write surface;
-- v2 remains the canonical ownership core, included inside the hardened module rather than registered directly;
+- v2 remains internal ownership core, not a registered writer;
 - independent guard compiled and main-only;
-- guard executes inside native Tailwind commit after exact v2 resolution;
-- post-guard fingerprint/range validation precedes write;
+- native Tailwind commit sequence is `v2 resolve → M2.1 CSS precedence → independent Tailwind guard → post-veto reread/fingerprint/range → atomic write`;
+- competing CSS owner is refused by native commit;
 - hidden `size-*` competitor is refused by native commit;
 - safe Tailwind commit remains functional;
 - lexical JSX false-positive refusal;
 - inline-style cascade safety;
-- fail-closed CSS-vs-Tailwind precedence;
+- fail-closed frontend CSS-vs-Tailwind precedence;
 - theme/config refusal;
 - responsive/state refusal;
 - shorthand/axis/multi-property conflict refusal;
@@ -275,8 +277,9 @@ M2.3 is merge-ready only when the **final exact head** has:
 - safe static Tailwind lane;
 - safe static JSX inline-style lane;
 - correct cascade/source precedence;
-- primary + independent multi-property conflict protection;
-- authoritative native guarded commit + post-guard fingerprint validation;
+- native CSS-precedence revalidation;
+- independent multi-property conflict protection;
+- authoritative native guarded commit + post-veto fingerprint validation;
 - main-webview-only markup/guard commands;
 - shared Timeline/evidence/Fresh Review/Ship handoff;
 - Codex fallback for all dynamic/ambiguous/unsupported cases;
@@ -285,4 +288,4 @@ M2.3 is merge-ready only when the **final exact head** has:
 
 ## Product standard
 
-> **Static proof gets speed. Cascade and scope stay explicit. A second native veto may reduce hit rate but never grants authority. The final writer re-proves its authority inside one guarded native commit before touching source.**
+> **Static proof gets speed. Cascade and scope stay explicit. The final native writer re-runs both stylesheet precedence and independent Tailwind conflict proof before touching source.**
