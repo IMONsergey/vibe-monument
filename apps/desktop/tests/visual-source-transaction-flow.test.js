@@ -5,6 +5,7 @@ import { test } from 'node:test';
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const editor = await readFile(new URL('../src/editor/VisualEditorLayer.tsx', import.meta.url), 'utf8');
 const properties = await readFile(new URL('../src/editor/PropertiesPanel.tsx', import.meta.url), 'utf8');
+const sourceTransaction = await readFile(new URL('../src/editor/sourceTransaction.ts', import.meta.url), 'utf8');
 const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const browser = await readFile(new URL('../src/browser/evidence.ts', import.meta.url), 'utf8');
 const verification = await readFile(new URL('../src/verification/controller.ts', import.meta.url), 'utf8');
@@ -54,6 +55,14 @@ test('direct UI always shows a dry-run and preserves explicit Codex fallback', (
   assert.ok(properties.includes('previewAfter'));
   assert.ok(properties.includes('Apply source'));
   assert.ok(properties.includes('Use Codex'));
+});
+
+test('attribute-selector ownership stays on Codex until source selector parsing is deeper', () => {
+  assert.ok(sourceTransaction.includes('selectorNeedsDeeperParsing'));
+  assert.ok(sourceTransaction.includes("selector.includes('[')"));
+  assert.ok(sourceTransaction.includes("selector.includes(']')"));
+  assert.ok(sourceTransaction.includes('Attribute-selector ownership needs deeper source parsing'));
+  assert.ok(sourceTransaction.includes('This source selector is no longer eligible for deterministic editing'));
 });
 
 test('explicit evidence checkpoint requests are accepted only while that checkpoint stays current', () => {
