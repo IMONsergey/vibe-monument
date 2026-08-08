@@ -10,6 +10,10 @@ on:
       - 'apps/desktop/**'
       - '.github/workflows/monument-desktop.yml'
 
+concurrency:
+  group: monument-desktop-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
