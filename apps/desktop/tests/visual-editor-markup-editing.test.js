@@ -107,10 +107,15 @@ test('markup writes are stale-source guarded, root-contained and atomic', () => 
   assert.ok(!markup.includes('bash -c'));
 });
 
-test('CSS ownership outranks JSX and Tailwind ownership', () => {
-  assert.ok(client.includes("'project_source_transaction_preview'"));
+test('inline style cascade is established before stylesheet-vs-Tailwind precedence', () => {
+  const markupProbe = client.indexOf('const markup = await nativeMarkupProbe');
+  const inlineDecision = client.indexOf("markup.operation?.lane === 'jsx-style'");
+  const inlineBlocker = client.indexOf('inlineStyleBlocksStylesheetFallback(markup)');
+  const cssProbe = client.indexOf('const cssPlan = await competingCssOwnership');
+  assert.ok(markupProbe >= 0 && inlineDecision > markupProbe && inlineBlocker > inlineDecision);
+  assert.ok(cssProbe > inlineBlocker);
   assert.ok(client.includes("cssPlan.mode !== 'codex'"));
-  assert.ok(client.indexOf('competingCssOwnership') < client.indexOf("'project_markup_edit_probe'"));
+  assert.ok(client.includes('CSS ownership is present or could not be excluded safely.'));
 });
 
 test('Properties exposes exact source lane, Codex escape hatch and preserves token truncation safety', () => {
