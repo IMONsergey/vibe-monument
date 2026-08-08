@@ -57,12 +57,18 @@ export function activeTimelineProjectRoot(projectId: string): string | null {
   return project?.id === projectId ? project.rootPath : null;
 }
 
+export async function currentTimelineCheckpoint(projectId: string): Promise<TimelineCheckpoint | null> {
+  const project = activeTimelineProject;
+  if (!project || project.id !== projectId) return null;
+  const state = await timelineInit(project.rootPath, timelineProjectId(project));
+  if (state.dirty) return null;
+  return state.checkpoints.find((checkpoint) => checkpoint.id === state.currentCheckpointId) ?? null;
+}
+
 export async function currentTimelineTurnSerial(projectId: string, fallback: number): Promise<number | null> {
   const project = activeTimelineProject;
   if (!project || project.id !== projectId) return fallback;
-  const state = await timelineInit(project.rootPath, timelineProjectId(project));
-  if (state.dirty) return null;
-  const current = state.checkpoints.find((checkpoint) => checkpoint.id === state.currentCheckpointId) ?? null;
+  const current = await currentTimelineCheckpoint(projectId);
   return current?.turnSerial ?? null;
 }
 
