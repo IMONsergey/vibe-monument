@@ -64,12 +64,12 @@ test('Layers are a bounded runtime projection and do not become a hidden documen
   assert.ok(!previewRuntime.includes('dangerousRemoteDomainIpcAccess'));
 });
 
-test('product UI exposes real bidirectional Layers and computed Properties', () => {
+test('product UI exposes real bidirectional Layers and source-native Properties', () => {
   assert.ok(entry.includes('VisualEditorLayer'));
   assert.ok(entry.includes("./styles/visual-editor.css"));
   for (const token of ['normalizeTree', 'normalizeSelection', 'preview_editor_select', 'preview_editor_hover', 'syncEditorSelectionFromPreview']) {
     assert.ok(editorController.includes(token), `editor controller missing ${token}`);
   }
   for (const token of ['Search layers', 'onSelect(layer.id)', 'onHover(layer.id)', 'Runtime projection']) assert.ok(layers.includes(token));
-  for (const token of ['Live computed values', 'Typography', 'Spacing', 'Appearance', 'Observed runtime values']) assert.ok(properties.includes(token));
+  for (const token of ['Live computed values', 'Typography', 'Spacing', 'Appearance', 'Source-authoritative editing', 'property-apply-bar']) assert.ok(properties.includes(token));
 });
