@@ -15,6 +15,8 @@
     "allow-project-source-hints",
     "allow-visual-source-plan",
     "allow-visual-source-apply",
+    "allow-visual-token-plan",
+    "allow-visual-token-apply",
     "allow-runtime-start",
     "allow-runtime-status",
     "allow-runtime-stop",
