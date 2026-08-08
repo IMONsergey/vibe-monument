@@ -156,7 +156,7 @@ export async function requestBrowserRepair(record: BrowserEvidenceRecord): Promi
 }
 
 export async function requestAutoRepairIfEnabled(evidence: VerificationEvidence): Promise<boolean> {
-  if (evidence.trigger !== 'codex-turn' || evidence.status !== 'failed' || !evidence.checkpointId) return false;
+  if (!['codex-turn', 'source-transaction'].includes(evidence.trigger) || evidence.status !== 'failed' || !evidence.checkpointId) return false;
   if (!(await isAutoRepairEnabled(evidence.projectId))) return false;
   return dispatchRepair({
     projectId: evidence.projectId,
