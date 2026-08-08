@@ -11,7 +11,7 @@ import {
   subscribeVisualEditor,
   syncEditorSelectionFromPreview,
 } from './controller';
-import { queueVisualPropertyEdit, type VisualPropertyChange } from './intent';
+import { applyVisualPropertyEdit, type VisualPropertyChange } from './intent';
 import { LayersPanel } from './LayersPanel';
 import { locateEditorSource, type EditorSourceOwnership } from './ownership';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -81,12 +81,16 @@ export function VisualEditorLayer() {
     setApplying(true);
     setApplyMessage(null);
     try {
-      const result = await queueVisualPropertyEdit(editor.selection, changes);
-      setApplyMessage(result.paused
-        ? `Queued · ${result.queuedCount} pending · queue is paused`
-        : result.queuedCount > 1
-          ? `Queued · ${result.queuedCount} pending`
-          : 'Queued for source update');
+      const result = await applyVisualPropertyEdit(editor.selection, changes);
+      if (result.mode === 'direct') {
+        setApplyMessage(`Applied directly · ${result.appliedCount} source change${result.appliedCount === 1 ? '' : 's'} · ${result.sourcePath}`);
+      } else {
+        setApplyMessage(result.paused
+          ? `Codex fallback queued · ${result.queuedCount} pending · queue is paused`
+          : result.queuedCount > 1
+            ? `Codex fallback queued · ${result.queuedCount} pending`
+            : 'Codex fallback queued for source update');
+      }
       return true;
     } catch (error) {
       setApplyMessage(error instanceof Error ? error.message : String(error));
