@@ -134,7 +134,8 @@ export function VisualEditorLayer() {
       return true;
     } catch (error) {
       setPreparedSourceEdit(null);
-      setApplyMessage(`Direct edit cancelled · ${error instanceof Error ? error.message : String(error)}`);
+      setApplyMessage(`Direct edit needs attention · ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => { void requestEditorTree().catch(() => undefined); }, 220);
       return false;
     } finally {
       setApplying(false);
