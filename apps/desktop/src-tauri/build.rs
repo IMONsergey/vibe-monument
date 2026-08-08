@@ -9,6 +9,7 @@ const APP_COMMANDS: &[&str] = &[
     "project_source_hints",
     "project_source_transaction_preview",
     "project_source_transaction_commit",
+    "project_token_scope_inspect",
     "runtime_start",
     "runtime_status",
     "runtime_stop",
