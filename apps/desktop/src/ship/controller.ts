@@ -49,6 +49,7 @@ function item(id: string, label: string, status: ShipGateStatus, detail: string,
 export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
   const items: ShipGateItem[] = [];
   const current = input.timeline?.checkpoints.find((checkpoint) => checkpoint.id === input.timeline?.currentCheckpointId) ?? null;
+  const checkpointId = current?.id ?? null;
   const turnSerial = current?.turnSerial ?? null;
 
   if (!input.project) {
@@ -63,19 +64,19 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
     items.push(item('version', 'Saved version', 'block', 'The current source has uncheckpointed changes. Save a version before review/ship.'));
   } else if (current.kind === 'baseline') {
     items.push(item('version', 'Saved version', 'block', 'Original baseline has no Monument change to ship.'));
-  } else if (turnSerial == null || turnSerial <= 0) {
-    items.push(item('version', 'Generation binding', 'block', 'This saved version is not bound to a Codex generation yet, so current evidence cannot be proven to match it.'));
   } else {
-    items.push(item('version', 'Saved version', 'pass', current.title || `Generation ${turnSerial}`));
+    items.push(item('version', 'Saved version', 'pass', current.title || `Version ${current.sequence}`));
   }
 
   const evidence = input.verification?.evidence ?? null;
-  if (turnSerial == null || turnSerial <= 0) {
-    items.push(item('checks', 'Deterministic checks', 'block', 'Checks cannot satisfy Ship until the current version has a generation id.', 'checks'));
+  if (!checkpointId || current?.kind === 'baseline') {
+    items.push(item('checks', 'Deterministic checks', 'block', 'Checks require a saved changed version.', 'checks'));
   } else if (!evidence) {
     items.push(item('checks', 'Deterministic checks', 'block', 'No checks have been captured for the current project.', 'checks'));
-  } else if (evidence.turnSerial !== turnSerial) {
-    items.push(item('checks', 'Deterministic checks', 'block', 'The latest checks belong to a different code generation.', 'checks'));
+  } else if (!evidence.checkpointId) {
+    items.push(item('checks', 'Deterministic checks', 'block', 'The latest checks use legacy generation identity. Run checks again for this saved version.', 'checks'));
+  } else if (evidence.checkpointId !== checkpointId) {
+    items.push(item('checks', 'Deterministic checks', 'block', 'The latest checks belong to a different saved version.', 'checks'));
   } else if (evidence.permissionRequired) {
     items.push(item('checks', 'Deterministic checks', 'block', 'Supported project checks exist but automatic execution has not been allowed. Run checks explicitly or enable Auto checks.', 'checks'));
   } else if (evidence.status === 'running') {
@@ -87,19 +88,21 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
   } else if (evidence.status === 'no-checks') {
     items.push(item('checks', 'Deterministic checks', 'warn', 'This project exposes no supported deterministic scripts. Ship can continue, but this evidence lane is absent.'));
   } else {
-    items.push(item('checks', 'Deterministic checks', 'pass', `${evidence.results.filter((result) => result.success).length} check${evidence.results.length === 1 ? '' : 's'} passed.`));
+    items.push(item('checks', 'Deterministic checks', 'pass', `${evidence.results.filter((result) => result.success).length} check${evidence.results.length === 1 ? '' : 's'} passed for this saved version.`));
   }
 
   if (!input.browserRequired) {
     items.push(item('browser', 'Live product', 'warn', 'No supported live web runtime is required for this project.'));
   } else if (!input.runtimeAvailable) {
     items.push(item('browser', 'Live product', 'block', 'Start the real preview before shipping so Monument can inspect browser/runtime evidence.', 'browser'));
-  } else if (turnSerial == null || turnSerial <= 0) {
-    items.push(item('browser', 'Browser evidence', 'block', 'Browser evidence cannot satisfy Ship until the current version is generation-bound.', 'browser'));
+  } else if (!checkpointId || current?.kind === 'baseline') {
+    items.push(item('browser', 'Browser evidence', 'block', 'Browser evidence requires a saved changed version.', 'browser'));
   } else if (!input.browser) {
     items.push(item('browser', 'Browser evidence', 'block', 'Capture the live product for the current version.', 'browser'));
-  } else if (input.browser.stale || input.browser.capturedForTurnSerial !== turnSerial) {
-    items.push(item('browser', 'Browser evidence', 'block', 'Browser evidence belongs to an older code generation.', 'browser'));
+  } else if (!input.browser.capturedForCheckpointId) {
+    items.push(item('browser', 'Browser evidence', 'block', 'The latest browser evidence uses legacy generation identity. Capture it again for this saved version.', 'browser'));
+  } else if (input.browser.stale || input.browser.capturedForCheckpointId !== checkpointId) {
+    items.push(item('browser', 'Browser evidence', 'block', 'Browser evidence belongs to another saved version.', 'browser'));
   } else if (browserEvidenceHasIssues(input.browser)) {
     items.push(item('browser', 'Browser evidence', 'block', 'The live product has runtime, console or failed-network issues.', 'browser'));
   } else {
@@ -149,7 +152,7 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
   const warningCount = items.filter((entry) => entry.status === 'warn').length;
   return {
     ready: blockingCount === 0,
-    checkpointId: current?.id ?? null,
+    checkpointId,
     turnSerial,
     items,
     blockingCount,
