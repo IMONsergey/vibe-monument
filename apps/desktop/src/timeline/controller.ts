@@ -22,10 +22,19 @@ export const TIMELINE_RESTORED_EVENT = 'monument:timeline-restored';
 
 const pendingPrompts = new Map<string, string>();
 let activeTimelineProject: ProjectInspection | null = null;
+let visualGenerationCounter = 0;
 
 function compactPrompt(value: string, limit = 120): string {
   const compact = value.replace(/\s+/g, ' ').trim();
   return compact.length <= limit ? compact : `${compact.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function nextVisualGenerationSerial(): number {
+  visualGenerationCounter = (visualGenerationCounter + 1) % 1000;
+  // Codex generations are positive. Direct visual source transactions live in a
+  // separate negative namespace, so they can share evidence/Review/Ship ledgers
+  // without ever colliding with a future Codex turn serial.
+  return -(Date.now() * 1000 + visualGenerationCounter);
 }
 
 function notifyTimelineRestored(result: TimelineRestoreResult): TimelineRestoreResult {
@@ -106,6 +115,29 @@ export async function checkpointCompletedTurn({
     turnSerial,
   });
   pendingPrompts.delete(project.id);
+  clearSourceTransactionDirty(project.id);
+  return checkpoint;
+}
+
+export async function checkpointVisualSourceTransaction({
+  project,
+  title,
+  detail,
+}: {
+  project: ProjectInspection;
+  title: string;
+  detail: string;
+}): Promise<TimelineCheckpoint> {
+  activeTimelineProject = project;
+  const turnSerial = nextVisualGenerationSerial();
+  const checkpoint = await timelineSnapshot(project.rootPath, timelineProjectId(project), {
+    kind: 'visual',
+    title: compactPrompt(title, 76) || 'Visual edit',
+    promptExcerpt: compactPrompt(detail, 360) || null,
+    codexThreadId: null,
+    codexTurnId: null,
+    turnSerial,
+  });
   clearSourceTransactionDirty(project.id);
   return checkpoint;
 }
