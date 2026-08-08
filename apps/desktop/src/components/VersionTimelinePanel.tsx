@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   subscribeTimelineQuality,
-  timelineQualityForTurn,
+  timelineQualityForCheckpoint,
   type TimelineBrowserStatus,
   type TimelineDeterministicStatus,
   type TimelineQualityMap,
@@ -130,10 +130,10 @@ export function VersionTimelinePanel({
           const isCurrent = checkpoint.id === state?.currentCheckpointId;
           const alternative = !currentLineage.has(checkpoint.id) && checkpoint.pathId !== state?.activePathId;
           const forked = (childCounts.get(checkpoint.id) ?? 0) > 1;
-          const checkpointQuality = timelineQualityForTurn(quality, checkpoint.turnSerial);
+          const checkpointQuality = timelineQualityForCheckpoint(quality, checkpoint.id);
           const deterministic = checkpointQuality ? deterministicBadge(checkpointQuality.deterministic) : null;
           const browser = checkpointQuality ? browserBadge(checkpointQuality.browser) : null;
-          const unverified = checkpoint.kind === 'prompt' && checkpoint.turnSerial != null && !checkpointQuality;
+          const unverified = checkpoint.kind !== 'baseline' && checkpoint.kind !== 'restore-safety' && !checkpointQuality;
           return (
             <article className={`timeline-card ${isCurrent ? 'current' : ''} ${alternative ? 'alternative' : ''}`} key={checkpoint.id}>
               <div className="timeline-card-top">
