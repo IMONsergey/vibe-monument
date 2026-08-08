@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "capabilities": ["main-capability"]
+      "capabilities": ["main-capability", "preview-editor-capability"]
     }
   },
   "bundle": {
