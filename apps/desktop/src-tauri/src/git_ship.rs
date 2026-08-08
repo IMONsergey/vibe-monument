@@ -22,6 +22,7 @@ pub struct GitShipCommitResult {
     commit_sha: String,
     branch: String,
     changed_files: usize,
+    remaining_files: Vec<String>,
 }
 
 fn canonical_project(project_path: &str) -> Result<PathBuf, String> {
@@ -163,10 +164,12 @@ pub fn git_ship_commit(project_path: String, message: String) -> Result<GitShipC
     }
 
     let commit_sha = git(&root, &["rev-parse", "HEAD"])?;
+    let remaining_files = changed_paths(&root).unwrap_or_default();
     Ok(GitShipCommitResult {
         commit_sha,
         branch: before.branch,
         changed_files: before.changed_files.len(),
+        remaining_files,
     })
 }
 
