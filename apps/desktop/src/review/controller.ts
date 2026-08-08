@@ -234,7 +234,7 @@ function qualityStatus(record: FreshReviewRecord): Exclude<TimelineReviewStatus,
 async function persistAndQuality(record: FreshReviewRecord): Promise<void> {
   emit(record.projectId, record);
   await persist(record);
-  if (record.turnSerial != null && record.turnSerial > 0) {
+  if (record.turnSerial != null && record.turnSerial !== 0) {
     await recordTimelineReviewQuality(record.projectId, record.turnSerial, qualityStatus(record), record.id).catch(() => undefined);
   }
 }
@@ -382,7 +382,7 @@ function findingRepairPrompt(record: FreshReviewRecord, finding: FreshReviewFind
 
 export function requestFreshReviewFindingRepair(record: FreshReviewRecord, findingId: string): boolean {
   const finding = record.findings.find((item) => item.id === findingId);
-  if (!finding || finding.waivedAt || record.turnSerial == null || record.turnSerial <= 0 || typeof window === 'undefined') return false;
+  if (!finding || finding.waivedAt || record.turnSerial == null || record.turnSerial === 0 || typeof window === 'undefined') return false;
   const detail: AutoRepairRequest = {
     projectId: record.projectId,
     projectRoot: record.projectRoot,
