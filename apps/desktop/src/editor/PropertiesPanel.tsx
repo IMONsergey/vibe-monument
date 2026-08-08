@@ -13,10 +13,10 @@ const GROUPS: PropertyGroupSpec[] = [
     { label: 'Min H', key: 'minHeight', editable: true }, { label: 'Max H', key: 'maxHeight', editable: true },
   ] },
   { title: 'Layout', items: [
-    { label: 'Display', key: 'display' }, { label: 'Position', key: 'position' },
+    { label: 'Display', key: 'display', editable: true }, { label: 'Position', key: 'position', editable: true },
     { label: 'Direction', key: 'flexDirection', editable: true }, { label: 'Wrap', key: 'flexWrap', editable: true },
     { label: 'Align', key: 'alignItems', editable: true }, { label: 'Justify', key: 'justifyContent', editable: true },
-    { label: 'Gap', key: 'gap', editable: true }, { label: 'Columns', key: 'gridTemplateColumns' },
+    { label: 'Gap', key: 'gap', editable: true }, { label: 'Columns', key: 'gridTemplateColumns', editable: true, wide: true },
   ] },
   { title: 'Spacing', items: [
     { label: 'P top', key: 'paddingTop', editable: true }, { label: 'P right', key: 'paddingRight', editable: true },
@@ -25,29 +25,33 @@ const GROUPS: PropertyGroupSpec[] = [
     { label: 'M bottom', key: 'marginBottom', editable: true }, { label: 'M left', key: 'marginLeft', editable: true },
   ] },
   { title: 'Typography', items: [
-    { label: 'Font', key: 'fontFamily', wide: true }, { label: 'Size', key: 'fontSize', editable: true },
+    { label: 'Font', key: 'fontFamily', editable: true, wide: true }, { label: 'Size', key: 'fontSize', editable: true },
     { label: 'Weight', key: 'fontWeight', editable: true }, { label: 'Line', key: 'lineHeight', editable: true },
     { label: 'Tracking', key: 'letterSpacing', editable: true }, { label: 'Align', key: 'textAlign', editable: true },
     { label: 'Color', key: 'color', editable: true, wide: true },
   ] },
   { title: 'Appearance', items: [
-    { label: 'Fill', key: 'backgroundColor', editable: true, wide: true }, { label: 'Image', key: 'backgroundImage', wide: true },
-    { label: 'Border', key: 'border' }, { label: 'Radius', key: 'borderRadius', editable: true },
-    { label: 'Shadow', key: 'boxShadow', wide: true }, { label: 'Opacity', key: 'opacity', editable: true },
+    { label: 'Fill', key: 'backgroundColor', editable: true, wide: true }, { label: 'Image', key: 'backgroundImage', editable: true, wide: true },
+    { label: 'Border', key: 'border', editable: true, wide: true }, { label: 'Radius', key: 'borderRadius', editable: true },
+    { label: 'Shadow', key: 'boxShadow', editable: true, wide: true }, { label: 'Opacity', key: 'opacity', editable: true },
     { label: 'Overflow', key: 'overflow', editable: true }, { label: 'Z', key: 'zIndex', editable: true },
   ] },
 ];
 
 const EDITABLE_KEYS = new Set(GROUPS.flatMap((group) => group.items.filter((item) => item.editable).map((item) => item.key)));
+const TEXT_KEY = 'textContent';
 const MAX_DRAFT_VALUE = 300;
+const MAX_TEXT_VALUE = 1200;
 
-function cleanDraft(value: string): string {
-  return value.replace(/[\r\n\t]+/g, ' ').slice(0, MAX_DRAFT_VALUE);
+function cleanDraft(value: string, limit = MAX_DRAFT_VALUE): string {
+  return value.replace(/[\r\n\t]+/g, ' ').slice(0, limit);
 }
 
-function initialDraft(selection: EditorSelection | null): Record<string, string> {
+function initialDraft(selection: EditorSelection | null, layer: EditorLayer | null): Record<string, string> {
   if (!selection) return {};
-  return Object.fromEntries([...EDITABLE_KEYS].map((key) => [key, selection.styles[key] || '']));
+  const values = Object.fromEntries([...EDITABLE_KEYS].map((key) => [key, selection.styles[key] || '']));
+  if (layer?.editable.text) values[TEXT_KEY] = layer.text || selection.text || '';
+  return values;
 }
 
 function ownershipLabel(ownership: EditorSourceOwnership | null): string {
@@ -70,17 +74,16 @@ function PropertyGroup({ group, selection, draft, onChange }: {
       <div className="property-grid">
         {group.items.map((item) => {
           const observed = selection.styles[item.key] || '';
-          const value = item.editable ? (draft[item.key] ?? observed) : observed;
-          const dirty = item.editable && value.trim() !== observed.trim();
+          const value = draft[item.key] ?? observed;
+          const dirty = value.trim() !== observed.trim();
           return (
-            <label className={`property-field ${item.wide ? 'wide' : ''} ${item.editable ? 'editable' : 'readonly'} ${dirty ? 'dirty' : ''}`} key={item.key} title={item.editable ? `Edit ${item.key}` : `${item.key} · observed runtime value`}>
+            <label className={`property-field ${item.wide ? 'wide' : ''} editable ${dirty ? 'dirty' : ''}`} key={item.key} title={`Edit ${item.key}`}>
               <span>{item.label}</span>
               <input
                 value={value || '—'}
-                readOnly={!item.editable}
                 spellCheck={false}
-                onFocus={(event) => { if (item.editable && event.currentTarget.value === '—') onChange(item.key, ''); }}
-                onChange={item.editable ? (event) => onChange(item.key, cleanDraft(event.target.value)) : undefined}
+                onFocus={(event) => { if (event.currentTarget.value === '—') onChange(item.key, ''); }}
+                onChange={(event) => onChange(item.key, cleanDraft(event.target.value))}
               />
               {dirty ? <i className="property-dirty-dot" /> : null}
             </label>
@@ -99,27 +102,33 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
   applyMessage: string | null;
   onApply: (changes: VisualPropertyChange[]) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(selection));
+  const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(selection, layer));
 
   useEffect(() => {
-    setDraft(initialDraft(selection));
-  }, [selection]);
+    setDraft(initialDraft(selection, layer));
+  }, [selection, layer?.text, layer?.editable.text]);
 
   const changes = useMemo<VisualPropertyChange[]>(() => {
     if (!selection) return [];
-    return [...EDITABLE_KEYS].flatMap((property) => {
+    const styleChanges = [...EDITABLE_KEYS].flatMap((property) => {
       const before = selection.styles[property] || '';
       const after = (draft[property] ?? before).trim();
       return after && after !== before.trim() ? [{ property, before, after }] : [];
     });
-  }, [draft, selection]);
+    if (!layer?.editable.text) return styleChanges;
+    const beforeText = layer.text || selection.text || '';
+    const afterText = (draft[TEXT_KEY] ?? beforeText).trim();
+    return afterText && afterText !== beforeText.trim()
+      ? [{ property: TEXT_KEY, before: beforeText, after: afterText }, ...styleChanges]
+      : styleChanges;
+  }, [draft, layer, selection]);
 
   const changeDraft = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
-  const reset = () => setDraft(initialDraft(selection));
+  const reset = () => setDraft(initialDraft(selection, layer));
   const applyChanges = async () => {
     if (!changes.length || applying) return;
     await onApply(changes);
-    setDraft(initialDraft(selection));
+    setDraft(initialDraft(selection, layer));
   };
 
   if (!selection) {
@@ -155,6 +164,20 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
           {ownership?.alternatives.length ? <details><summary>{ownership.alternatives.length} alternative candidate{ownership.alternatives.length === 1 ? '' : 's'}</summary><div>{ownership.alternatives.map((hint) => <code key={`${hint.path}:${hint.line}`}>{hint.path}:{hint.line} · {hint.score}</code>)}</div></details> : null}
         </section>
 
+        {layer?.editable.text ? (
+          <section className="property-group property-content-group">
+            <div className="property-group-title">Content</div>
+            <label className={`property-text-field ${(draft[TEXT_KEY] ?? '').trim() !== (layer.text || selection.text || '').trim() ? 'dirty' : ''}`}>
+              <span>Text</span>
+              <textarea
+                value={draft[TEXT_KEY] ?? layer.text ?? selection.text}
+                maxLength={MAX_TEXT_VALUE}
+                onChange={(event) => changeDraft(TEXT_KEY, event.target.value.slice(0, MAX_TEXT_VALUE))}
+              />
+            </label>
+          </section>
+        ) : null}
+
         {GROUPS.map((group) => <PropertyGroup key={group.title} group={group} selection={selection} draft={draft} onChange={changeDraft} />)}
 
         <section className="property-source-note">
@@ -164,7 +187,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
       </div>
 
       <div className={`property-apply-bar ${changes.length ? 'dirty' : ''}`}>
-        <div><strong>{changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong><span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit an enabled property above')}</span></div>
+        <div><strong>{changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong><span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit a property above')}</span></div>
         {changes.length ? <button type="button" className="secondary" disabled={applying} onClick={reset}>Reset</button> : null}
         <button type="button" disabled={!changes.length || applying} onClick={() => void applyChanges()}>{applying ? 'Queueing…' : 'Apply'}</button>
       </div>
