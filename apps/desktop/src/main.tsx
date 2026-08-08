@@ -11,6 +11,7 @@ import './styles/queue.css';
 import './styles/ship.css';
 import './styles/ship-git.css';
 import './styles/visual-editor.css';
+import './styles/visual-editor-editing.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Monument root element is missing');
