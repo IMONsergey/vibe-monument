@@ -72,6 +72,7 @@ function clean(value: string, limit = MAX_VALUE): string {
 function transactionSelection(selection: EditorSelection) {
   return {
     id: selection.id || null,
+    idUnique: selection.idUnique === true,
     classes: selection.classes.slice(0, 16),
     selector: selection.selector.slice(0, 220),
   };
