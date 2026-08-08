@@ -5,7 +5,7 @@ import {
   loadPromptQueue,
   setPromptQueuePaused,
 } from '../queue/controller';
-import { checkpointVisualSourceTransaction } from '../timeline/controller';
+import { checkpointVisualSourceTransaction, readTimelineStatus } from '../timeline/controller';
 import {
   isSourceTransactionOrchestrationBlocked,
   isSourceTransactionValidationBusy,
@@ -174,11 +174,27 @@ export async function applyVisualPropertyEdit(
   const bounded = safeChanges(changes);
   if (!bounded.length) throw new Error('No visual property changes to apply.');
 
-  const plan = await directSourcePlan(project.rootPath, selection, bounded).catch((error) => ({
-    mode: 'codex' as const,
-    reason: `Deterministic source resolution unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    operations: [],
-  }));
+  // Direct writes are only provenance-safe when the current working tree still matches
+  // the active Timeline generation. Existing external/uncheckpointed source changes are
+  // intentionally routed through Codex instead of being silently absorbed into a visual checkpoint.
+  const timelineStatus = await readTimelineStatus(project).catch(() => null);
+  const plan: SourceTransactionPlan = !timelineStatus
+    ? {
+        mode: 'codex',
+        reason: 'Version Timeline preflight is unavailable; direct source mutation cannot prove generation ownership.',
+        operations: [],
+      }
+    : timelineStatus.dirty
+      ? {
+          mode: 'codex',
+          reason: 'Current source differs from the active Timeline generation; direct editing is disabled until provenance is resolved.',
+          operations: [],
+        }
+      : await directSourcePlan(project.rootPath, selection, bounded).catch((error) => ({
+          mode: 'codex' as const,
+          reason: `Deterministic source resolution unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          operations: [],
+        }));
 
   if (plan.mode === 'deterministic' && plan.operations.length === bounded.length) {
     // Commit re-runs the resolver natively. The dry-run is never trusted as authority.
