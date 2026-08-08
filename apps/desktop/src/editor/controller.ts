@@ -165,6 +165,17 @@ export function subscribeVisualEditor(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
+export function resetVisualEditorPreview(): void {
+  publish({
+    active: false,
+    ready: false,
+    tree: null,
+    selection: null,
+    selectedNodeId: null,
+    hoveredNodeId: null,
+  });
+}
+
 export async function startVisualEditorBridge(): Promise<() => void> {
   return listenNative<EditorBridgeMessage>('monument://preview-editor', (message) => {
     if (!message || typeof message.kind !== 'string') return;
@@ -195,11 +206,17 @@ export async function startVisualEditorBridge(): Promise<() => void> {
 }
 
 export async function setVisualEditorActive(active: boolean): Promise<void> {
+  const previous = state.active;
   publish({ active });
-  if (active) await invokeNative<void>('preview_set_inspect', { enabled: false }).catch(() => undefined);
-  await invokeNative<void>('preview_editor_set_active', { enabled: active });
-  if (active) await requestEditorTree();
-  else publish({ hoveredNodeId: null });
+  try {
+    if (active) await invokeNative<void>('preview_set_inspect', { enabled: false }).catch(() => undefined);
+    await invokeNative<void>('preview_editor_set_active', { enabled: active });
+    if (active) await requestEditorTree();
+    else publish({ hoveredNodeId: null });
+  } catch (error) {
+    publish({ active: previous });
+    throw error;
+  }
 }
 
 export async function requestEditorTree(): Promise<void> {
@@ -209,7 +226,12 @@ export async function requestEditorTree(): Promise<void> {
 export async function selectEditorNode(nodeId: string): Promise<void> {
   if (!NODE_ID.test(nodeId)) return;
   publish({ selectedNodeId: nodeId });
-  await invokeNative<void>('preview_editor_select', { nodeId });
+  try {
+    await invokeNative<void>('preview_editor_select', { nodeId });
+  } catch (error) {
+    publish({ selectedNodeId: state.selection?.nodeId ?? null });
+    throw error;
+  }
 }
 
 export async function hoverEditorNode(nodeId: string | null): Promise<void> {
