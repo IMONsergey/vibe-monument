@@ -224,7 +224,7 @@ fn clean_value(value: &str) -> Result<String, String> {
 }
 
 fn normalized_literal(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
+    value.trim().to_string()
 }
 
 fn fingerprint(bytes: &[u8]) -> String {
@@ -427,7 +427,7 @@ fn push_declaration(
         return;
     }
     let value = &content[value_start..value_end];
-    if value.contains("var(") || normalized_literal(value) != normalized_literal(observed_before) {
+    if value.to_ascii_lowercase().contains("var(") || normalized_literal(value) != normalized_literal(observed_before) {
         return;
     }
     let line = content.as_bytes()[..property_start].iter().filter(|byte| **byte == b'\n').count() + 1;
@@ -864,6 +864,25 @@ mod tests {
         assert_eq!(plan.css_property, "padding-top");
         assert_eq!(plan.before_source, "24px");
         assert_eq!(plan.after_source, "32px");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn literal_matching_preserves_case_sensitive_semantics() {
+        let (root, mut input) = fixture("#hero { background-image: url(\"/Hero.PNG\"); }\n");
+        input.property = "backgroundImage".into();
+        input.before = "url(\"/hero.png\")".into();
+        input.after = "url(\"/next.png\")".into();
+        assert_eq!(plan_internal(&input).unwrap().status, "not-found");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refuses_token_backed_values_case_insensitively() {
+        let (root, mut input) = fixture("#hero { padding-top: VAR(--space); }\n");
+        input.before = "VAR(--space)".into();
+        input.after = "32px".into();
+        assert_eq!(plan_internal(&input).unwrap().status, "not-found");
         let _ = fs::remove_dir_all(root);
     }
 
