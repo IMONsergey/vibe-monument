@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 const sourceTransaction = await readFile(new URL('../src-tauri/src/source_transaction.rs', import.meta.url), 'utf8');
+const nativeTimeline = await readFile(new URL('../src-tauri/src/timeline_runtime.rs', import.meta.url), 'utf8');
 const tauriLib = await readFile(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
 const tauriBuild = await readFile(new URL('../src-tauri/build.rs', import.meta.url), 'utf8');
 const capability = await readFile(new URL('../src-tauri/capabilities/main-capability.json', import.meta.url), 'utf8');
@@ -53,6 +54,13 @@ test('direct transaction commands are registered and scoped to the trusted main 
     assert.ok(capability.includes(`allow-${command.replaceAll('_', '-')}`), `main capability missing ${command}`);
   }
   assert.ok(capability.includes('"webviews": ["main"]'));
+});
+
+test('native Timeline persists direct visual generations instead of rejecting the new checkpoint kind', () => {
+  assert.ok(nativeTimeline.includes('"visual" => format!("Visual edit {sequence}")'));
+  assert.ok(nativeTimeline.includes('matches!(kind, "prompt" | "visual" | "manual" | "restore-safety" | "external")'));
+  assert.ok(nativeTimeline.includes('turn_serial: Option<i64>'));
+  assert.ok(nativeTimeline.includes('turn_serial INTEGER'));
 });
 
 test('direct Apply is generation-bound and cannot overlap other source mutation', () => {
