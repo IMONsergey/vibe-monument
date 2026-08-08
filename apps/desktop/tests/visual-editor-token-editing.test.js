@@ -87,10 +87,14 @@ test('Properties exposes explicit instance local global and Codex choices', () =
 });
 
 test('token source mutations enter the same Timeline evidence chain as literal direct edits', () => {
-  assert.ok(intent.indexOf('previewVisualTokenTransaction') < intent.indexOf('commitVisualTokenTransaction'));
-  assert.ok(intent.indexOf('commitVisualTokenTransaction') < intent.indexOf('checkpointVisualSourceTransaction'));
-  assert.ok(intent.includes('finishDirectVisualEdit'));
-  assert.ok(intent.includes("window.dispatchEvent(new CustomEvent('monument:source-transaction'"));
+  const previewCall = intent.indexOf('const plan = await previewVisualTokenTransaction');
+  const commitCall = intent.indexOf('const committed = await commitVisualTokenTransaction');
+  const finishCall = intent.indexOf('return finishDirectVisualEdit', commitCall);
+  const checkpointCall = intent.indexOf('const checkpoint = await checkpointVisualSourceTransaction');
+  const eventCall = intent.indexOf("window.dispatchEvent(new CustomEvent('monument:source-transaction'");
+  assert.ok(previewCall >= 0 && commitCall > previewCall);
+  assert.ok(finishCall > commitCall);
+  assert.ok(checkpointCall >= 0 && eventCall > checkpointCall);
   assert.ok(intent.includes('markBrowserEvidenceStale'));
   assert.ok(intent.includes('recordSourceTransactionCheckpoint'));
   assert.ok(intent.includes("tokenDecision?.mode === 'codex'"));
