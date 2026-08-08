@@ -56,11 +56,19 @@ if (markup.includes('sh -c') || markup.includes('bash -c') || markup.includes('R
 }
 
 for (const token of [
-  "'project_source_transaction_preview'", 'competingCssOwnership', "cssPlan.mode !== 'codex'",
+  'nativeMarkupProbe', 'inlineStyleBlocksStylesheetFallback',
+  "markup.operation?.lane === 'jsx-style'", "'project_source_transaction_preview'",
+  'competingCssOwnership', "cssPlan.mode !== 'codex'",
   "'project_markup_edit_probe'", "'project_markup_transaction_preview'", "'project_markup_transaction_commit'",
   'idUnique: selection.idUnique === true',
 ]) {
   if (!client.includes(token)) throw new Error(`Markup client ownership contract missing ${token}`);
+}
+const markupProbe = client.indexOf('const markup = await nativeMarkupProbe');
+const inlineBlocker = client.indexOf('inlineStyleBlocksStylesheetFallback(markup)');
+const cssProbe = client.indexOf('const cssPlan = await competingCssOwnership');
+if (!(markupProbe >= 0 && inlineBlocker > markupProbe && cssProbe > inlineBlocker)) {
+  throw new Error('Markup routing must establish inline-style cascade safety before CSS-vs-Tailwind precedence');
 }
 
 for (const token of [
