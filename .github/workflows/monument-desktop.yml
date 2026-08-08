@@ -5,10 +5,12 @@ on:
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/monument-desktop.yml'
+      - '.github/workflows/monument-intel-alpha-release.yml'
   pull_request:
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/monument-desktop.yml'
+      - '.github/workflows/monument-intel-alpha-release.yml'
 
 permissions:
   contents: read
