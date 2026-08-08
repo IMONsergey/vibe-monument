@@ -37,6 +37,12 @@ export interface VisualMarkupTransactionCommit {
   ownerKind: string;
 }
 
+interface CompetingCssPlan {
+  mode: 'deterministic' | 'assisted' | 'codex';
+  reason: string;
+  operations: unknown[];
+}
+
 const MAX_VALUE = 300;
 
 function clean(value: string, limit = MAX_VALUE): string {
@@ -52,12 +58,32 @@ function markupSelection(selection: EditorSelection) {
   };
 }
 
+function cssSelection(selection: EditorSelection) {
+  return {
+    id: selection.id || null,
+    classes: selection.classes.slice(0, 16),
+    selector: selection.selector.slice(0, 220),
+  };
+}
+
 function markupChange(change: VisualPropertyChange) {
   return {
     property: clean(change.property, 80),
     before: clean(change.before),
     after: clean(change.after),
   };
+}
+
+async function competingCssOwnership(
+  projectPath: string,
+  selection: EditorSelection,
+  change: VisualPropertyChange,
+): Promise<CompetingCssPlan | null> {
+  return invokeNative<CompetingCssPlan>('project_source_transaction_preview', {
+    projectPath,
+    selection: cssSelection(selection),
+    changes: [markupChange(change)],
+  }).catch(() => null);
 }
 
 export async function probeVisualMarkupEdit(
@@ -67,6 +93,12 @@ export async function probeVisualMarkupEdit(
   if (!change.property || change.property === 'textContent' || !selection.id || !selection.idUnique) return null;
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) return null;
+
+  // CSS ownership outranks markup ownership. If the existing M2.1 resolver sees a real or
+  // assisted CSS owner, JSX/Tailwind must not race it for the same computed property.
+  const cssPlan = await competingCssOwnership(projectPath, selection, change);
+  if (cssPlan && cssPlan.mode !== 'codex') return null;
+
   return invokeNative<VisualMarkupEditProbe>('project_markup_edit_probe', {
     projectPath,
     selection: markupSelection(selection),
