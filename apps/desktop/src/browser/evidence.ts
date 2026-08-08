@@ -100,7 +100,9 @@ export async function captureBrowserEvidence(
   checkpointId: string | null = null,
 ): Promise<BrowserEvidenceRecord> {
   const checkpoint = await currentTimelineCheckpoint(projectId).catch(() => null);
-  const resolvedCheckpointId = checkpointId ?? checkpoint?.id ?? null;
+  const resolvedCheckpointId = checkpoint && (!checkpointId || checkpoint.id === checkpointId)
+    ? checkpoint.id
+    : null;
   const resolvedTurnSerial = checkpoint?.turnSerial
     ?? (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial))
     ?? 0;
@@ -132,19 +134,28 @@ export async function captureBrowserEvidence(
     unlisten?.();
   });
 
+  // Re-check checkpoint identity after capture as well. The project can change while the
+  // browser snapshot is being collected; such a capture must be stale rather than falsely bound.
+  const checkpointAfterCapture = await currentTimelineCheckpoint(projectId).catch(() => null);
+  const stillCurrent = Boolean(
+    resolvedCheckpointId
+    && checkpointAfterCapture
+    && checkpointAfterCapture.id === resolvedCheckpointId,
+  );
+  const finalCheckpointId = stillCurrent ? resolvedCheckpointId : null;
   const record: BrowserEvidenceRecord = {
     projectId,
     snapshot,
-    stale: !resolvedCheckpointId,
-    capturedForCheckpointId: resolvedCheckpointId,
+    stale: !finalCheckpointId,
+    capturedForCheckpointId: finalCheckpointId,
     capturedForTurnSerial: resolvedTurnSerial,
   };
   emit(record);
   await stateSet(evidenceKey(projectId), record).catch(() => undefined);
-  if (resolvedCheckpointId) {
+  if (finalCheckpointId) {
     await recordTimelineBrowserQuality(
       projectId,
-      resolvedCheckpointId,
+      finalCheckpointId,
       resolvedTurnSerial > 0 ? resolvedTurnSerial : null,
       browserEvidenceHasIssues(record) ? 'issues' : 'clean',
       snapshot.capturedAt,
