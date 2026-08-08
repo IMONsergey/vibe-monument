@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isNativeHost, stateGet } from '../host/native';
 import { subscribePreviewSelection } from '../preview/selection';
+import type { VisualContentDecision } from './contentEditing';
 import {
   getVisualEditorState,
   hoverEditorNode,
@@ -82,12 +83,13 @@ export function VisualEditorLayer() {
     changes: VisualPropertyChange[],
     tokenDecision?: VisualTokenEditDecision,
     markupDecision?: VisualMarkupDecision,
+    contentDecision?: VisualContentDecision,
   ): Promise<boolean> => {
     if (!editor.selection || applying) return false;
     setApplying(true);
     setApplyMessage(null);
     try {
-      const result = await applyVisualPropertyEdit(editor.selection, changes, tokenDecision, markupDecision);
+      const result = await applyVisualPropertyEdit(editor.selection, changes, tokenDecision, markupDecision, contentDecision);
       if (result.mode === 'direct') {
         if (result.token) {
           const scope = result.scope === 'global-token'
@@ -98,8 +100,12 @@ export function VisualEditorLayer() {
           const refs = result.affectedUsageCount === 1 ? '1 source ref' : `${result.affectedUsageCount} source refs`;
           setApplyMessage(`Applied directly · ${scope} · ${result.token} · ${refs} observed · ${result.sourcePath}`);
         } else if (result.sourceLane) {
-          const lane = result.sourceLane === 'tailwind' ? 'Tailwind utility' : 'JSX inline style';
-          setApplyMessage(`Applied directly · ${lane} · ${result.ownerKind || 'static source owner'} · ${result.sourcePath}`);
+          const lane = result.sourceLane === 'tailwind'
+            ? 'Tailwind utility'
+            : result.sourceLane === 'jsx-style'
+              ? 'JSX inline style'
+              : 'JSX content';
+          setApplyMessage(`Applied directly · ${lane} · ${result.appliedCount} source operation${result.appliedCount === 1 ? '' : 's'} · ${result.ownerKind || 'static source owner'} · ${result.sourcePath}`);
         } else {
           setApplyMessage(`Applied directly · ${result.appliedCount} source change${result.appliedCount === 1 ? '' : 's'} · ${result.sourcePath}`);
         }
