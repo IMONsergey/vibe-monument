@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const jsxSource = await readFile(join(root, 'src-tauri/src/jsx_source.rs'), 'utf8');
 const markup = await readFile(join(root, 'src-tauri/src/markup_transaction_v2.rs'), 'utf8');
+const hardened = await readFile(join(root, 'src-tauri/src/markup_transaction_hardened.rs'), 'utf8');
 const guard = await readFile(join(root, 'src-tauri/src/markup_conflict_guard.rs'), 'utf8');
 const tauriLib = await readFile(join(root, 'src-tauri/src/lib.rs'), 'utf8');
 const tauriBuild = await readFile(join(root, 'src-tauri/build.rs'), 'utf8');
@@ -28,8 +29,11 @@ for (const command of [
 if (JSON.stringify(capability.webviews) !== JSON.stringify(['main'])) {
   throw new Error('Markup source-write/guard permissions must remain scoped to the trusted main webview');
 }
-if (!tauriLib.includes('mod markup_transaction_v2;') || tauriLib.includes('mod markup_transaction;')) {
-  throw new Error('Only the hardened markup transaction engine may be compiled');
+if (!tauriLib.includes('mod markup_transaction_hardened;') || tauriLib.includes('mod markup_transaction_v2;') || tauriLib.includes('mod markup_transaction;')) {
+  throw new Error('Production must register only the hardened markup commit wrapper as write authority');
+}
+if (!hardened.includes('include!("markup_transaction_v2.rs")')) {
+  throw new Error('Hardened markup wrapper must reuse the canonical v2 ownership core');
 }
 if (!tauriLib.includes('mod markup_conflict_guard;')) {
   throw new Error('Independent Tailwind conflict guard must remain compiled');
@@ -54,10 +58,10 @@ for (const token of [
   'Updated JSX/TSX failed bounded opening-tag structural validation',
   'shorthand_and_axis_utilities_block_side_or_gap_edit',
 ]) {
-  if (!markup.includes(token)) throw new Error(`Hardened markup transaction missing ${token}`);
+  if (!markup.includes(token)) throw new Error(`Hardened markup ownership core missing ${token}`);
 }
 if (markup.includes('sh -c') || markup.includes('bash -c') || markup.includes('Regex')) {
-  throw new Error('Markup editing must not use blind regex or interpolated shell mutation');
+  throw new Error('Markup ownership core must not use blind regex or interpolated shell mutation');
 }
 
 for (const token of [
@@ -73,6 +77,27 @@ for (const token of [
 }
 if (guard.includes('sh -c') || guard.includes('bash -c') || guard.includes('Regex')) {
   throw new Error('Tailwind conflict guard must remain bounded and parser-based');
+}
+
+for (const token of [
+  'enforce_tailwind_conflict_guard',
+  'project_markup_conflict_guard',
+  'let resolved = resolve(&root, &selection, &change)?;',
+  'Source changed while validating the Tailwind conflict guard',
+  'fingerprint(&content) != expected_fingerprint',
+  'write_atomic(&canonical, &content)?',
+  'native_commit_refuses_hidden_size_competitor_after_v2_resolution',
+  'native_commit_preserves_safe_tailwind_write',
+]) {
+  if (!hardened.includes(token)) throw new Error(`Native hardened commit boundary missing ${token}`);
+}
+const nativeResolve = hardened.indexOf('let resolved = resolve(&root, &selection, &change)?;');
+const nativeGuard = hardened.indexOf('enforce_tailwind_conflict_guard(', nativeResolve + 1);
+const nativeRead = hardened.indexOf('let mut content = fs::read_to_string', nativeGuard);
+const nativeFingerprint = hardened.indexOf('fingerprint(&content) != expected_fingerprint', nativeRead);
+const nativeWrite = hardened.indexOf('write_atomic(&canonical, &content)?', nativeFingerprint);
+if (!(nativeResolve >= 0 && nativeGuard > nativeResolve && nativeRead > nativeGuard && nativeFingerprint > nativeRead && nativeWrite > nativeFingerprint)) {
+  throw new Error('Native markup commit must resolve, guard, re-read/fingerprint, then atomically write in that order');
 }
 
 for (const token of [
@@ -98,7 +123,7 @@ if (!(previewGuard >= 0 && client.indexOf('const exact = await exactDirectProbe'
   throw new Error('Markup dry-run must re-run exact ownership + conflict proof');
 }
 if (!(commitGuard >= 0 && client.indexOf('const exact = await exactDirectProbe', commitGuard) > commitGuard)) {
-  throw new Error('Markup commit path must re-run exact ownership + conflict proof');
+  throw new Error('Markup commit path must re-run exact ownership + conflict proof before native guarded commit');
 }
 
 for (const token of [
