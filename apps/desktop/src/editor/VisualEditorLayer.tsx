@@ -15,6 +15,7 @@ import { applyVisualPropertyEdit, type VisualPropertyChange } from './intent';
 import { LayersPanel } from './LayersPanel';
 import { locateEditorSource, type EditorSourceOwnership } from './ownership';
 import { PropertiesPanel } from './PropertiesPanel';
+import type { VisualTokenEditDecision } from './tokenEditing';
 import type { VisualEditorState } from './types';
 
 export function VisualEditorLayer() {
@@ -76,20 +77,33 @@ export function VisualEditorLayer() {
     void setVisualEditorActive(false).catch(() => undefined);
   }, []);
 
-  const applyProperties = useCallback(async (changes: VisualPropertyChange[]): Promise<boolean> => {
+  const applyProperties = useCallback(async (
+    changes: VisualPropertyChange[],
+    tokenDecision?: VisualTokenEditDecision,
+  ): Promise<boolean> => {
     if (!editor.selection || applying) return false;
     setApplying(true);
     setApplyMessage(null);
     try {
-      const result = await applyVisualPropertyEdit(editor.selection, changes);
+      const result = await applyVisualPropertyEdit(editor.selection, changes, tokenDecision);
       if (result.mode === 'direct') {
-        setApplyMessage(`Applied directly · ${result.appliedCount} source change${result.appliedCount === 1 ? '' : 's'} · ${result.sourcePath}`);
+        if (result.token) {
+          const scope = result.scope === 'global-token'
+            ? 'global token'
+            : result.scope === 'local-token'
+              ? 'local token'
+              : 'selected element';
+          setApplyMessage(`Applied directly · ${scope} · ${result.token} · ${result.affectedUsageCount} affected · ${result.sourcePath}`);
+        } else {
+          setApplyMessage(`Applied directly · ${result.appliedCount} source change${result.appliedCount === 1 ? '' : 's'} · ${result.sourcePath}`);
+        }
       } else {
+        const fallback = result.reason ? ` · ${result.reason}` : '';
         setApplyMessage(result.paused
-          ? `Codex fallback queued · ${result.queuedCount} pending · queue is paused`
+          ? `Codex fallback queued · ${result.queuedCount} pending · queue is paused${fallback}`
           : result.queuedCount > 1
-            ? `Codex fallback queued · ${result.queuedCount} pending`
-            : 'Codex fallback queued for source update');
+            ? `Codex fallback queued · ${result.queuedCount} pending${fallback}`
+            : `Codex fallback queued for source update${fallback}`);
       }
       return true;
     } catch (error) {
