@@ -17,6 +17,7 @@ interface GitShipCommitResult {
   commitSha: string;
   branch: string;
   changedFiles: number;
+  remainingFiles: string[];
 }
 
 function gateIcon(status: 'pass' | 'block' | 'warn'): string {
@@ -191,10 +192,10 @@ export function ShipPanel({
 
       {gitError ? <div className="ship-git-error">{gitError}</div> : null}
       {commitResult ? (
-        <div className="ship-commit-success">
-          <strong>Committed locally</strong>
+        <div className={`ship-commit-success ${commitResult.remainingFiles.length ? 'with-remainder' : ''}`}>
+          <strong>{commitResult.remainingFiles.length ? 'Committed, but new changes remain' : 'Committed locally'}</strong>
           <span>{commitResult.commitSha.slice(0, 12)} · {commitResult.branch} · {commitResult.changedFiles} file{commitResult.changedFiles === 1 ? '' : 's'}</span>
-          <small>No push was performed.</small>
+          {commitResult.remainingFiles.length ? <small>Commit hooks or concurrent edits left {commitResult.remainingFiles.length} working-tree change{commitResult.remainingFiles.length === 1 ? '' : 's'}: {commitResult.remainingFiles.slice(0, 6).join(' · ')}</small> : <small>Working tree is clean for the shipped files. No push was performed.</small>}
         </div>
       ) : null}
     </aside>
