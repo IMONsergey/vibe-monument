@@ -7,6 +7,7 @@ import {
 } from '../queue/controller';
 import { checkpointVisualSourceTransaction } from '../timeline/controller';
 import {
+  isSourceTransactionOrchestrationBlocked,
   isSourceTransactionValidationBusy,
   markSourceTransactionDirty,
   recordSourceTransactionCheckpoint,
@@ -164,6 +165,9 @@ export async function applyVisualPropertyEdit(
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) throw new Error('Open a project before applying visual changes.');
   const project = await inspectProject(projectPath);
+  if (isSourceTransactionOrchestrationBlocked(project.id)) {
+    throw new Error('Direct source editing is temporarily locked while Monument is changing or verifying this project.');
+  }
   if (isSourceTransactionValidationBusy(project.id)) {
     throw new Error('The previous direct visual edit is still being verified. Apply the next source transaction after its evidence settles.');
   }
