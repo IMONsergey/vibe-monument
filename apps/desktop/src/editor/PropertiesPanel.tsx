@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { EditorSourceOwnership } from './ownership';
 import type { VisualPropertyChange } from './intent';
 import type { PreparedVisualSourceEdit } from './sourceTransaction';
+import type { PreparedVisualTokenEdit, VisualTokenScope } from './tokenTransaction';
 import type { EditorLayer, EditorSelection } from './types';
 
 type PropertySpec = { label: string; key: string; editable?: boolean; wide?: boolean };
@@ -106,10 +107,14 @@ export function PropertiesPanel({
   applying,
   applyMessage,
   sourcePreview,
+  tokenPreview,
+  tokenScope,
+  onTokenScope,
   onApply,
   onConfirmSource,
+  onConfirmToken,
   onUseCodex,
-  onDismissSourcePreview,
+  onDismissPrepared,
 }: {
   selection: EditorSelection | null;
   layer: EditorLayer | null;
@@ -117,10 +122,14 @@ export function PropertiesPanel({
   applying: boolean;
   applyMessage: string | null;
   sourcePreview: PreparedVisualSourceEdit | null;
+  tokenPreview: PreparedVisualTokenEdit | null;
+  tokenScope: VisualTokenScope;
+  onTokenScope: (scope: VisualTokenScope) => void;
   onApply: (changes: VisualPropertyChange[]) => Promise<boolean>;
   onConfirmSource: () => Promise<boolean>;
+  onConfirmToken: () => Promise<boolean>;
   onUseCodex: () => Promise<boolean>;
-  onDismissSourcePreview: () => void;
+  onDismissPrepared: () => void;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(selection, layer));
 
@@ -143,12 +152,13 @@ export function PropertiesPanel({
       : styleChanges;
   }, [draft, layer, selection]);
 
+  const hasPrepared = Boolean(sourcePreview || tokenPreview);
   const changeDraft = (key: string, value: string) => {
-    if (sourcePreview) onDismissSourcePreview();
+    if (hasPrepared) onDismissPrepared();
     setDraft((current) => ({ ...current, [key]: value }));
   };
   const reset = () => {
-    if (sourcePreview) onDismissSourcePreview();
+    if (hasPrepared) onDismissPrepared();
     setDraft(initialDraft(selection, layer));
   };
   const applyChanges = async () => {
@@ -159,8 +169,12 @@ export function PropertiesPanel({
     if (!sourcePreview || applying) return;
     if (await onConfirmSource()) setDraft(initialDraft(selection, layer));
   };
+  const confirmToken = async () => {
+    if (!tokenPreview || applying) return;
+    if (await onConfirmToken()) setDraft(initialDraft(selection, layer));
+  };
   const useCodex = async () => {
-    if (!sourcePreview || applying) return;
+    if (!hasPrepared || applying) return;
     if (await onUseCodex()) setDraft(initialDraft(selection, layer));
   };
 
@@ -174,6 +188,7 @@ export function PropertiesPanel({
   }
 
   const textEditable = canEditText(selection, layer);
+  const selectedTokenPlan = tokenPreview ? (tokenScope === 'element' ? tokenPreview.elementPlan : tokenPreview.tokenPlan) : null;
 
   return (
     <aside className="visual-properties-panel" aria-label="Properties">
@@ -227,25 +242,50 @@ export function PropertiesPanel({
               <div><span>Before</span><pre>{sourcePreview.plan.previewBefore}</pre></div>
               <div><span>After</span><pre>{sourcePreview.plan.previewAfter}</pre></div>
             </div>
-            <p>Monument proved one stable <code>#{selection.id}</code>-owned literal CSS declaration. Apply re-checks the exact file fingerprint and source range before one atomic write.</p>
+            <p>Monument proved one unique live <code>#{selection.id}</code>-owned literal CSS declaration. Apply re-checks the live ID scope, file fingerprint and source range before one atomic write.</p>
+          </section>
+        ) : null}
+
+        {tokenPreview && selectedTokenPlan ? (
+          <section className={`property-token-source-card ${tokenScope === 'token' ? 'global' : 'element'}`}>
+            <div className="property-token-source-head">
+              <div><strong>Design token</strong><code>{tokenPreview.tokenName}</code></div>
+              <span>~{tokenPreview.usageCount} source mention{tokenPreview.usageCount === 1 ? '' : 's'}</span>
+            </div>
+            <div className="property-token-scope" role="group" aria-label="Design token edit scope">
+              <button type="button" className={tokenScope === 'element' ? 'active' : ''} disabled={applying} onClick={() => onTokenScope('element')}>
+                <strong>This element</strong><span>Detach token here</span>
+              </button>
+              <button type="button" className={tokenScope === 'token' ? 'active' : ''} disabled={applying} onClick={() => onTokenScope('token')}>
+                <strong>Token {tokenPreview.tokenName}</strong><span>Global source change</span>
+              </button>
+            </div>
+            <div className="property-direct-source-head token-path"><code>{selectedTokenPlan.sourcePath}:{selectedTokenPlan.line}</code><span>{tokenScope === 'token' ? 'global :root' : `#${selection.id}`}</span></div>
+            <div className="property-source-diff">
+              <div><span>Before</span><pre>{selectedTokenPlan.previewBefore}</pre></div>
+              <div><span>After</span><pre>{selectedTokenPlan.previewAfter}</pre></div>
+            </div>
+            <p>{tokenScope === 'token'
+              ? `This intentionally changes ${tokenPreview.tokenName} at its proved global :root definition and may affect every use. Monument will re-plan the same token scope before writing.`
+              : `This changes only #${selection.id} by replacing its ${tokenPreview.tokenName} reference with the requested literal value. The global token stays unchanged.`}</p>
           </section>
         ) : null}
 
         <section className="property-source-note">
           <strong>Source-authoritative editing</strong>
-          <span>Apply first attempts a bounded deterministic source transaction. Only exact single-owner edits are eligible; ambiguous, shared, structural, text and multi-property changes keep using the normal Codex → Timeline → evidence path.</span>
+          <span>Apply tries the lowest-risk deterministic path first. Literal CSS writes require one exact owner. Token-backed values require a proved reference plus a proved global definition and an explicit scope choice. Everything ambiguous remains Codex-backed.</span>
         </section>
       </div>
 
-      <div className={`property-apply-bar ${changes.length ? 'dirty' : ''} ${sourcePreview ? 'direct-ready' : ''}`}>
+      <div className={`property-apply-bar ${changes.length ? 'dirty' : ''} ${hasPrepared ? 'direct-ready' : ''}`}>
         <div>
-          <strong>{sourcePreview ? 'Direct edit ready' : changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong>
+          <strong>{tokenPreview ? `Choose ${tokenPreview.tokenName} scope` : sourcePreview ? 'Direct edit ready' : changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong>
           <span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit a property above')}</span>
         </div>
         {changes.length ? <button type="button" className="secondary" disabled={applying} onClick={reset}>Reset</button> : null}
-        {sourcePreview ? <button type="button" className="secondary" disabled={applying} onClick={() => void useCodex()}>Use Codex</button> : null}
-        <button type="button" disabled={!changes.length || applying} onClick={() => void (sourcePreview ? confirmSource() : applyChanges())}>
-          {applying ? (sourcePreview ? 'Applying…' : 'Planning…') : sourcePreview ? 'Apply source' : 'Apply'}
+        {hasPrepared ? <button type="button" className="secondary" disabled={applying} onClick={() => void useCodex()}>Use Codex</button> : null}
+        <button type="button" disabled={!changes.length || applying} onClick={() => void (sourcePreview ? confirmSource() : tokenPreview ? confirmToken() : applyChanges())}>
+          {applying ? (hasPrepared ? 'Applying…' : 'Planning…') : hasPrepared ? 'Apply source' : 'Apply'}
         </button>
       </div>
     </aside>
