@@ -98,7 +98,7 @@ fn plan(root: &Path) -> Result<GitShipPlan, String> {
     let reason = if branch.is_empty() {
         Some("Detached HEAD cannot be committed through Monument Ship yet.".to_string())
     } else if !staged_files.is_empty() {
-        Some("Your Git index already contains staged changes. Monument refuses to mix them into an automatic Ship commit; commit or unstage them first.".to_string())
+        Some("Your Git index already contains staged changes. Monument refuses to mix them into a Ship commit; commit or unstage them first.".to_string())
     } else if changed_files.is_empty() {
         Some("There are no local Git changes to commit.".to_string())
     } else if changed_files.len() >= MAX_SHIP_FILES {
@@ -151,14 +151,17 @@ pub fn git_ship_commit(project_path: String, message: String) -> Result<GitShipC
         return Err(format!("Could not stage Ship files: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
 
+    // Respect repository commit hooks. Ship is not allowed to bypass a project's
+    // own commit policy just because the Monument evidence gate is green.
     let commit = Command::new("git")
-        .args(["commit", "-m", &message, "--no-verify"])
+        .args(["commit", "-m", &message])
         .current_dir(&root)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .map_err(|error| format!("Could not create Ship commit: {error}"))?;
     if !commit.status.success() {
-        // Do not silently modify hooks or retry. Restore the previously-clean index.
+        // plan() guaranteed a clean index before staging, so this restores that
+        // exact pre-Ship index state while leaving working-tree changes intact.
         let _ = Command::new("git").args(["reset", "--mixed", "HEAD"]).current_dir(&root).output();
         return Err(format!("Ship commit failed: {}", String::from_utf8_lossy(&commit.stderr).trim()));
     }
