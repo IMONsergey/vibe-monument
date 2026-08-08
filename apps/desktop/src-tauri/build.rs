@@ -7,6 +7,8 @@ const APP_COMMANDS: &[&str] = &[
     "project_open",
     "project_inspect",
     "project_source_hints",
+    "visual_source_plan",
+    "visual_source_apply",
     "runtime_start",
     "runtime_status",
     "runtime_stop",
