@@ -153,7 +153,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
         <button
           type="button"
           className={currentKey === 'instance' ? 'selected' : ''}
-          disabled={!probe.instanceEligible}
+          disabled={!probe.instanceEligible || probe.truncated}
           onClick={() => onDecision({ mode: 'instance' })}
         >
           <strong>This element</strong>
@@ -165,6 +165,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
             <button
               type="button"
               className={currentKey === tokenDecisionKey(next) ? 'selected' : ''}
+              disabled={probe.truncated}
               key={`local:${definition.path}:${definition.line}:${definition.selector}`}
               onClick={() => onDecision(next)}
             >
@@ -179,6 +180,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
             <button
               type="button"
               className={currentKey === tokenDecisionKey(next) ? 'selected global' : 'global'}
+              disabled={probe.truncated}
               key={`global:${definition.path}:${definition.line}:${definition.selector}`}
               onClick={() => onDecision(next)}
             >
@@ -201,7 +203,7 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
           {conditionalDefinitions.length} responsive/conditional token definition{conditionalDefinitions.length === 1 ? '' : 's'} detected. They stay read-only here until breakpoint-aware authoring exists; use Codex for those scopes.
         </div>
       ) : null}
-      {selectedDefinition?.scope === 'global' ? (
+      {selectedDefinition?.scope === 'global' && !probe.truncated ? (
         <label className={`property-token-confirm ${globalConfirmationRequired ? 'required' : ''}`}>
           <input
             type="checkbox"
@@ -213,13 +215,15 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
           <span>I understand this changes a global token. The bounded scans currently observe {probe.usageCount} source ref{probe.usageCount === 1 ? '' : 's'}; live impact may be broader through cascade and inheritance.</span>
         </label>
       ) : null}
-      {beforeLine && afterLine ? (
+      {beforeLine && afterLine && !probe.truncated ? (
         <div className="property-token-diff" aria-label="Source preview">
           <div><span>−</span><code>{beforeLine}</code></div>
           <div><span>+</span><code>{afterLine}</code></div>
         </div>
       ) : null}
-      {probe.truncated ? <div className="property-token-warning">The bounded token scan was truncated. Deterministic token mutation is disabled; use Codex.</div> : null}
+      {probe.truncated ? (
+        <div className="property-token-warning">The bounded token scan was truncated. Direct token mutation is disabled; Apply will use Codex.</div>
+      ) : null}
     </section>
   );
 }
@@ -328,7 +332,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
         if (disposed) return;
         if (token?.eligible) {
           setTokenProbe(token);
-          setTokenDecision(defaultTokenDecision(token));
+          setTokenDecision(token.truncated ? { mode: 'codex' } : defaultTokenDecision(token));
           setMarkupProbe(null);
           setMarkupDecision(null);
           return;
@@ -357,10 +361,14 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
     setMarkupProbe(null);
     setMarkupDecision(null);
   };
-  const globalConfirmationRequired = Boolean(tokenProbe && tokenDecision && tokenDecisionRequiresGlobalConfirmation(tokenProbe, tokenDecision));
+  const globalConfirmationRequired = Boolean(tokenProbe && tokenDecision && !tokenProbe.truncated && tokenDecisionRequiresGlobalConfirmation(tokenProbe, tokenDecision));
   const applyChanges = async () => {
     if (!changes.length || applying || sourceProbeLoading || globalConfirmationRequired) return;
-    const token = tokenProbe ? tokenDecision ?? { mode: 'codex' as const } : undefined;
+    const token = tokenProbe
+      ? tokenProbe.truncated
+        ? { mode: 'codex' as const }
+        : tokenDecision ?? { mode: 'codex' as const }
+      : undefined;
     const markup = !tokenProbe && markupProbe ? markupDecision ?? 'codex' : undefined;
     if (await onApply(changes, token, markup)) {
       setDraft(initialDraft(selection, layer));
@@ -383,11 +391,12 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
   const textEditable = canEditText(selection, layer);
   const applyStatus = applyMessage
     || (sourceProbeLoading ? 'Inspecting source ownership…'
-      : globalConfirmationRequired ? `Confirm global ${tokenProbe?.token || 'token'} scope`
-        : tokenProbe ? 'Choose a safe token scope, then apply'
-          : markupProbe?.mode === 'deterministic' && markupDecision === 'direct' ? `Direct ${markupProbe.operation?.lane === 'tailwind' ? 'Tailwind' : 'JSX style'} source edit ready`
-            : markupProbe ? `Codex fallback · ${markupProbe.reason}`
-              : changes.length ? 'Ready to update real source' : 'Edit a property above');
+      : tokenProbe?.truncated ? 'Bounded token evidence truncated · Codex fallback required'
+        : globalConfirmationRequired ? `Confirm global ${tokenProbe?.token || 'token'} scope`
+          : tokenProbe ? 'Choose a safe token scope, then apply'
+            : markupProbe?.mode === 'deterministic' && markupDecision === 'direct' ? `Direct ${markupProbe.operation?.lane === 'tailwind' ? 'Tailwind' : 'JSX style'} source edit ready`
+              : markupProbe ? `Codex fallback · ${markupProbe.reason}`
+                : changes.length ? 'Ready to update real source' : 'Edit a property above');
 
   return (
     <aside className="visual-properties-panel" aria-label="Properties">
@@ -442,7 +451,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
 
         <section className="property-source-note">
           <strong>Source-authoritative editing</strong>
-          <span>Monument routes each edit through the narrowest proven lane: token scope, JSX/Tailwind static ownership, literal CSS, then Codex. Dynamic class composition, spreads, responsive/state variants, custom-component ambiguity and unsupported values never gain deterministic write authority. Every direct edit becomes one Version Timeline generation and invalidates stale evidence.</span>
+          <span>Monument routes each edit through the narrowest proven lane: token scope, JSX/Tailwind static ownership, literal CSS, then Codex. Truncated token evidence, dynamic class composition, spreads, responsive/state variants, custom-component ambiguity and unsupported values never gain deterministic write authority. Every direct edit becomes one Version Timeline generation and invalidates stale evidence.</span>
         </section>
       </div>
 
