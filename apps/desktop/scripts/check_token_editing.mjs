@@ -4,10 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const tokenTransaction = await readFile(join(root, 'src-tauri/src/token_transaction.rs'), 'utf8');
+const previewEditorScript = await readFile(join(root, 'src-tauri/src/preview_editor_script.rs'), 'utf8');
 const tauriLib = await readFile(join(root, 'src-tauri/src/lib.rs'), 'utf8');
 const tauriBuild = await readFile(join(root, 'src-tauri/build.rs'), 'utf8');
 const capability = JSON.parse(await readFile(join(root, 'src-tauri/capabilities/main-capability.json'), 'utf8'));
 const tokenClient = await readFile(join(root, 'src/editor/tokenEditing.ts'), 'utf8');
+const editorController = await readFile(join(root, 'src/editor/controller.ts'), 'utf8');
+const selection = await readFile(join(root, 'src/preview/selection.ts'), 'utf8');
 const properties = await readFile(join(root, 'src/editor/PropertiesPanel.tsx'), 'utf8');
 const intent = await readFile(join(root, 'src/editor/intent.ts'), 'utf8');
 const styles = await readFile(join(root, 'src/styles/visual-editor-editing.css'), 'utf8');
@@ -30,6 +33,9 @@ for (const token of [
   'MAX_CSS_FILES', 'MAX_FILE_BYTES', 'MAX_TOTAL_BYTES', 'MAX_VALUE_BYTES',
   'TokenEditMode::Instance', 'TokenEditMode::Token', 'simple_var_token', 'selector_score',
   'property_candidates.len() != 1', 'selected_scope', 'confirm_shared_global',
+  'id_unique: bool', 'selection.id_unique', 'source.selector_score >= 100',
+  'class_owned_rule_is_not_a_single_element_edit', 'duplicate_live_id_is_not_a_single_element_edit',
+  'instance_transaction_detaches_only_unique_id_rule',
   'conditional: bool', 'parent_conditional', 'property_candidates.iter().any(|candidate| candidate.conditional)',
   'Responsive/conditional CSS ownership', 'if definition.public.conditional',
   'breakpoint-aware token authoring is not deterministic in M2.2',
@@ -43,12 +49,23 @@ if (tokenTransaction.includes('Regex') || tokenTransaction.includes('sh -c') || 
 }
 
 for (const token of [
+  'function uniqueId(element)', 'document.querySelectorAll', 'idUnique: uniqueId(element)',
+]) {
+  if (!previewEditorScript.includes(token)) throw new Error(`Live unique-id evidence missing ${token}`);
+}
+if (!selection.includes('idUnique?: boolean')) throw new Error('Shared preview selection model is missing live id uniqueness evidence');
+if (!editorController.includes('idUnique: Boolean(id && source.idUnique === true)')) {
+  throw new Error('Visual Editor selection normalizer is not preserving live id uniqueness evidence');
+}
+
+for (const token of [
   "'project_token_edit_probe'",
   "'project_token_transaction_preview'",
   "'project_token_transaction_commit'",
   'defaultTokenDecision',
   'tokenDecisionRequiresGlobalConfirmation',
   'conditional: boolean',
+  'idUnique: selection.idUnique === true',
 ]) {
   if (!tokenClient.includes(token)) throw new Error(`Token client model missing ${token}`);
 }
