@@ -9,7 +9,7 @@ import type {
   UserInputQuestion,
 } from '../types';
 import { AUTO_REPAIR_EVENT, MAX_AUTO_REPAIR_ATTEMPTS, type AutoRepairRequest } from '../repair/controller';
-import { checkpointActiveTimelineTurn, currentTimelineTurnSerial } from '../timeline/controller';
+import { checkpointActiveTimelineTurn, currentTimelineCheckpoint, currentTimelineTurnSerial } from '../timeline/controller';
 import { CodexClient } from './client';
 import { NativeCodexTransport, type RpcMessage } from './transport';
 
@@ -321,10 +321,19 @@ export class CodexRuntime {
     if (typeof request.projectRoot !== 'string' || typeof request.evidenceId !== 'string') return;
     if (this.handledRepairEvidence.has(request.evidenceId)) return;
 
-    const currentGeneration = await currentTimelineTurnSerial(request.projectId, this.snapshot.turnSerial)
-      .catch(() => this.snapshot.turnSerial);
-    if (currentGeneration == null || request.turnSerial !== currentGeneration || this.snapshot.state !== 'ready' || this.snapshot.activeTurnId) {
-      this.activity('system', 'Repair skipped', 'The evidence no longer matches the current code state.');
+    let matchesCurrentSource = false;
+    if (request.checkpointId) {
+      const checkpoint = await currentTimelineCheckpoint(request.projectId).catch(() => null);
+      matchesCurrentSource = Boolean(checkpoint && checkpoint.id === request.checkpointId);
+    } else {
+      // Backward compatibility for persisted pre-M2 evidence only. New evidence always binds checkpointId.
+      const currentGeneration = await currentTimelineTurnSerial(request.projectId, this.snapshot.turnSerial)
+        .catch(() => this.snapshot.turnSerial);
+      matchesCurrentSource = currentGeneration != null && request.turnSerial === currentGeneration;
+    }
+
+    if (!matchesCurrentSource || this.snapshot.state !== 'ready' || this.snapshot.activeTurnId) {
+      this.activity('system', 'Repair skipped', 'The evidence no longer matches the current saved source checkpoint.');
       return;
     }
 
