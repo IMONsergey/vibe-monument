@@ -1,7 +1,14 @@
 {
-  "status": "failed",
-  "version": "0.2.0-alpha.7",
+  "status": "published",
+  "version": "0.2.0-alpha.8",
   "architecture": "x86_64-apple-darwin",
   "runner": "macos-15-intel",
-  "failed_stage": "identity"
+  "minimum_macos": "13.0",
+  "release_url": "https://github.com/IMONsergey/vibe-monument/releases/tag/monument-v0.2.0-alpha.8-intel",
+  "asset_name": "Monument-0.2.0-alpha.8-Intel-x86_64.dmg",
+  "sha256": "6b261684a7622d1324e8b20ab4df2d71ebd6a6e05f2c6ae19cb0ee3f7f280713",
+  "signing": "ad-hoc",
+  "notarized": false,
+  "verified_dmg_mount": true,
+  "verified_binary_architecture": "x86_64"
 }
