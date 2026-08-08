@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4173",
     "check": "tsc --noEmit && npm run check:native",
-    "check:native": "node scripts/check_native_source.mjs",
+    "check:native": "node scripts/check_native_source.mjs && node scripts/check_token_editing.mjs",
     "test": "node --test tests/*.test.js",
     "build": "tsc --noEmit && vite build"
   },
