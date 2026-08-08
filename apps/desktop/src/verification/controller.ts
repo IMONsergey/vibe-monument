@@ -26,6 +26,7 @@ export interface VerificationEvidence {
   id: string;
   projectId: string;
   projectRoot: string;
+  /** Exact saved source identity. turnSerial is provenance only. */
   checkpointId: string | null;
   turnSerial: number;
   trigger: 'codex-turn' | 'manual';
@@ -122,12 +123,13 @@ function timelineStatusFor(evidence: VerificationEvidence): TimelineDeterministi
 
 async function persistFinal(evidence: VerificationEvidence): Promise<void> {
   await persist(evidence);
-  if (evidence.turnSerial > 0) {
+  if (evidence.checkpointId) {
     const rawStatus = timelineStatusFor(evidence);
     const status: Exclude<TimelineDeterministicStatus, 'not-run'> = rawStatus === 'not-run' ? 'no-checks' : rawStatus;
     await recordTimelineDeterministicQuality(
       evidence.projectId,
-      evidence.turnSerial,
+      evidence.checkpointId,
+      evidence.turnSerial > 0 ? evidence.turnSerial : null,
       status,
       evidence.id,
     ).catch(() => undefined);
