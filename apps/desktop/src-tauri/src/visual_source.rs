@@ -159,13 +159,66 @@ fn css_property(value: &str) -> Option<&'static str> {
     })
 }
 
+fn css_value_is_balanced(value: &str) -> bool {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut parens = 0usize;
+    let mut brackets = 0usize;
+
+    for ch in value.chars() {
+        if ch.is_control() {
+            return false;
+        }
+        if let Some(active_quote) = quote {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+            if ch == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        match ch {
+            '\'' | '"' => quote = Some(ch),
+            '(' => parens += 1,
+            ')' => {
+                if parens == 0 {
+                    return false;
+                }
+                parens -= 1;
+            }
+            '[' => brackets += 1,
+            ']' => {
+                if brackets == 0 {
+                    return false;
+                }
+                brackets -= 1;
+            }
+            '\\' => return false,
+            _ => {}
+        }
+    }
+
+    quote.is_none() && !escaped && parens == 0 && brackets == 0
+}
+
 fn clean_value(value: &str) -> Result<String, String> {
     let value = value.trim();
     if value.is_empty() || value.len() > MAX_VALUE_BYTES {
         return Err("Visual CSS value is empty or exceeds the deterministic edit boundary".into());
     }
-    if value.contains(['\n', '\r', '{', '}', ';']) || value.contains("/*") || value.contains("*/") {
-        return Err("Visual CSS value requires Codex because it cannot be represented as one literal declaration value".into());
+    if value.contains(['\n', '\r', '{', '}', ';'])
+        || value.contains("/*")
+        || value.contains("*/")
+        || !css_value_is_balanced(value)
+    {
+        return Err("Visual CSS value requires Codex because it cannot be represented as one safe literal declaration value".into());
     }
     Ok(value.to_string())
 }
@@ -759,7 +812,7 @@ pub fn visual_source_apply(input: VisualSourceApplyInput) -> Result<VisualSource
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_internal, visual_source_apply, VisualSourceApplyInput, VisualSourcePlanInput};
+    use super::{clean_value, plan_internal, visual_source_apply, VisualSourceApplyInput, VisualSourcePlanInput};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -779,6 +832,25 @@ mod tests {
             after: "32px".into(),
         };
         (root, input)
+    }
+
+    #[test]
+    fn accepts_balanced_literal_css_values() {
+        assert!(clean_value("32px").is_ok());
+        assert!(clean_value("calc(100% - 24px)").is_ok());
+        assert!(clean_value("linear-gradient(90deg, rgb(0 0 0 / .2), transparent)").is_ok());
+        assert!(clean_value("'Open Sans', sans-serif").is_ok());
+        assert!(clean_value("url(\"/hero image.webp\") center / cover").is_ok());
+    }
+
+    #[test]
+    fn rejects_malformed_or_breakout_css_values() {
+        assert!(clean_value("calc(100% - 24px").is_err());
+        assert!(clean_value("url(\"/hero.png)").is_err());
+        assert!(clean_value("32px; color: red").is_err());
+        assert!(clean_value("32px} body { color: red").is_err());
+        assert!(clean_value("32px\0color:red").is_err());
+        assert!(clean_value("foo\\bar").is_err());
     }
 
     #[test]
