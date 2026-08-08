@@ -16,6 +16,7 @@ mod system_runtime;
 mod timeline_cursor;
 mod timeline_runtime;
 mod timeline_secure;
+mod token_scope;
 mod verification_runtime;
 
 #[cfg(test)]
@@ -37,6 +38,7 @@ use system_runtime::system_open_external;
 use timeline_cursor::timeline_set_active_path;
 use timeline_runtime::{timeline_diff, timeline_init, timeline_list, timeline_snapshot, timeline_status, TimelineRuntime};
 use timeline_secure::{timeline_back_safe, timeline_forward_safe, timeline_restore_safe};
+use token_scope::project_token_scope_inspect;
 use verification_runtime::{verification_plan, verification_run};
 use std::sync::Mutex;
 
@@ -58,6 +60,7 @@ pub fn run() {
             project_source_hints,
             project_source_transaction_preview,
             project_source_transaction_commit,
+            project_token_scope_inspect,
             runtime_start,
             runtime_status,
             runtime_stop,
