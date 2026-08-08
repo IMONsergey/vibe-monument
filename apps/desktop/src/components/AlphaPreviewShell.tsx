@@ -85,8 +85,8 @@ export function AlphaPreviewShell() {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [open, refreshHealth]);
 
-  const chooseProject = useCallback(async () => {
-    if (!native || busy) return;
+  const chooseFirstProject = useCallback(async () => {
+    if (!native || busy || health.projectValid) return;
     setBusy(true);
     setMessage(null);
     try {
@@ -100,7 +100,7 @@ export function AlphaPreviewShell() {
     } finally {
       setBusy(false);
     }
-  }, [busy, native]);
+  }, [busy, health.projectValid, native]);
 
   const recheck = useCallback(async () => {
     if (busy) return;
@@ -145,9 +145,16 @@ export function AlphaPreviewShell() {
         </header>
 
         <div className="alpha-preview-primary-actions">
-          <button type="button" className="alpha-preview-open-project" disabled={!native || busy} onClick={() => void chooseProject()}>
-            <strong>{health.projectValid ? 'Open / switch project' : 'Open local project'}</strong>
-            <span>{native ? 'Choose a folder on this Mac' : 'Launch the installed Monument app to open local projects'}</span>
+          <button
+            type="button"
+            className="alpha-preview-open-project"
+            disabled={!native || busy || health.projectValid}
+            onClick={() => void chooseFirstProject()}
+          >
+            <strong>{health.projectValid ? 'Project active' : 'Open local project'}</strong>
+            <span>{health.projectValid
+              ? 'Use the project switcher in the main top bar so active tasks and evidence guards are respected.'
+              : native ? 'Choose a folder on this Mac' : 'Launch the installed Monument app to open local projects'}</span>
           </button>
           <button type="button" className="alpha-preview-recheck" disabled={!native || busy} onClick={() => void recheck()}>
             Recheck environment
