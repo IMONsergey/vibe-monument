@@ -10,7 +10,7 @@ test('Ship commit is explicit, bounded and does not bypass repository hooks', ()
   assert.ok(native.includes('MAX_SHIP_FILES: usize = 400'));
   assert.ok(native.includes('MAX_COMMIT_MESSAGE: usize = 180'));
   assert.ok(native.includes('Your Git index already contains staged changes'));
-  assert.ok(native.includes('add.arg("--")'));
+  assert.ok(native.includes('arg("add").arg("--")'));
   assert.ok(native.includes('.args(["commit", "-m", &message])'));
   assert.ok(!native.includes('--no-verify'));
   assert.ok(!native.includes('git add .'));
