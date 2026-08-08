@@ -32,6 +32,36 @@ html.visual-editor-active .preview-local-toolbar { display: none; }
 .property-source-card details > div { margin-top: 5px; display: grid; gap: 3px; }
 .property-source-card details code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 7.5px; }
 
+.property-token-card { margin: 0 9px 10px; padding: 9px; display: grid; gap: 8px; border: 1px solid rgba(87,99,26,.22); border-radius: 10px; background: linear-gradient(180deg, rgba(242,248,212,.74), rgba(255,255,255,.72)); box-shadow: 0 8px 22px rgba(48,54,18,.035); }
+.property-token-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.property-token-head > div { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.property-token-head strong { overflow: hidden; text-overflow: ellipsis; color: #30380d; font: 650 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.property-token-head > span { flex: 0 0 auto; color: #68713a; font-size: 7.5px; }
+.property-token-badge { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; background: #dff26d; color: #485400; font-size: 7px; font-weight: 720; letter-spacing: .02em; text-transform: uppercase; }
+.property-token-source { display: grid; gap: 3px; }
+.property-token-source code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #414631; font-size: 7.7px; }
+.property-token-source span { color: #68705a; font-size: 7.6px; line-height: 1.4; }
+.property-token-choice-title { margin-top: 1px; color: #676b58; font-size: 7.3px; font-weight: 680; letter-spacing: .055em; text-transform: uppercase; }
+.property-token-choices { display: grid; gap: 5px; }
+.property-token-choices button { width: 100%; display: grid; gap: 2px; text-align: left; padding: 7px 8px; border: 1px solid rgba(41,45,28,.105); border-radius: 7px; background: rgba(255,255,255,.68); color: var(--ink); cursor: pointer; }
+.property-token-choices button:hover:not(:disabled) { border-color: rgba(78,90,18,.28); background: rgba(255,255,255,.9); }
+.property-token-choices button.selected { border-color: rgba(103,123,9,.46); background: rgba(222,241,126,.3); box-shadow: inset 0 0 0 1px rgba(103,123,9,.07); }
+.property-token-choices button.global { border-style: dashed; }
+.property-token-choices button:disabled { opacity: .38; cursor: default; }
+.property-token-choices button strong { font-size: 8.2px; font-weight: 680; }
+.property-token-choices button span { color: var(--muted); font-size: 7.25px; line-height: 1.35; }
+.property-token-confirm { display: flex; align-items: flex-start; gap: 6px; padding: 7px; border: 1px solid rgba(151,103,26,.18); border-radius: 7px; background: rgba(177,124,31,.045); color: #70511d; cursor: pointer; }
+.property-token-confirm.required { border-color: rgba(176,82,44,.3); background: rgba(176,82,44,.065); }
+.property-token-confirm input { margin: 1px 0 0; }
+.property-token-confirm span { font-size: 7.5px; line-height: 1.4; }
+.property-token-diff { display: grid; gap: 2px; overflow: hidden; border: 1px solid rgba(29,32,22,.08); border-radius: 7px; background: rgba(255,255,255,.62); }
+.property-token-diff > div { min-width: 0; display: grid; grid-template-columns: 14px minmax(0,1fr); align-items: center; padding: 4px 6px; }
+.property-token-diff > div:first-child { background: rgba(174,65,45,.035); }
+.property-token-diff > div:last-child { background: rgba(63,133,82,.045); }
+.property-token-diff span { color: var(--muted); font: 700 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.property-token-diff code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #3f4334; font-size: 7.4px; }
+.property-token-warning { padding: 7px; border-radius: 7px; background: rgba(158,76,39,.07); color: #7b482e; font-size: 7.5px; line-height: 1.4; }
+
 .property-apply-bar { flex: 0 0 auto; min-height: 54px; display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-top: 1px solid var(--line); background: rgba(248,248,245,.985); }
 .property-apply-bar > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
 .property-apply-bar strong { font-size: 9.5px; }
