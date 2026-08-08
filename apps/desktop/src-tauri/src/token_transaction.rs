@@ -19,6 +19,8 @@ const MAX_USAGES: usize = 512;
 pub struct TokenEditSelection {
     id: Option<String>,
     #[serde(default)]
+    id_unique: bool,
+    #[serde(default)]
     classes: Vec<String>,
     selector: String,
 }
@@ -846,7 +848,7 @@ fn probe_internal(
         conditional: source.conditional,
     };
     let reason = if definitions.is_empty() {
-        "Token-backed property proven. The selected instance can be detached safely; token definition was not found in bounded plain CSS.".to_string()
+        "Token-backed property proven. The selected source owner may be detached only when a unique live ID proves single-element scope; token definition was not found in bounded plain CSS.".to_string()
     } else if definitions.iter().all(|definition| definition.public.conditional) {
         format!(
             "Token-backed property proven, but all definitions of {token} are conditional; direct token mutation is disabled."
@@ -857,9 +859,14 @@ fn probe_internal(
         )
     } else {
         format!(
-            "Token-backed property proven. Choose whether to detach this element or mutate {token} at its proven scope."
+            "Token-backed property proven. Choose a proven source scope for {token}."
         )
     };
+    let instance_eligible = !truncated
+        && !source.conditional
+        && selection.id_unique
+        && safe_selector_ident(selection.id.as_deref()).is_some()
+        && source.selector_score >= 100;
 
     Ok(ProbeInternal {
         public: TokenEditProbe {
@@ -871,7 +878,7 @@ fn probe_internal(
             definition_count,
             usage_count,
             truncated,
-            instance_eligible: !truncated && !source.conditional && source.selector_score >= 20,
+            instance_eligible,
         },
         source: Some(source),
         definitions,
@@ -930,7 +937,7 @@ fn resolve_plan(
             if !probe.public.instance_eligible {
                 return Ok(unsafe_plan(
                     TokenEditMode::Instance,
-                    "Selected instance does not have sufficiently strong non-conditional selector ownership for deterministic detachment.",
+                    "This element is not proven single-instance: deterministic detachment requires a unique live DOM id and an id-owned non-conditional source rule.",
                 ));
             }
             let Some(source) = probe.source else {
@@ -943,7 +950,7 @@ fn resolve_plan(
                 public: TokenTransactionPlan {
                     safe: true,
                     reason: format!(
-                        "Detach this element from {token} and write one literal declaration in the proven owner rule."
+                        "Detach this uniquely identified element from {token} and write one literal declaration in its proven id-owned rule."
                     ),
                     mode: TokenEditMode::Instance,
                     token: Some(token),
@@ -1214,8 +1221,18 @@ mod tests {
     fn selection() -> TokenEditSelection {
         TokenEditSelection {
             id: None,
+            id_unique: false,
             classes: vec!["card".into()],
             selector: ".card".into(),
+        }
+    }
+
+    fn instance_selection() -> TokenEditSelection {
+        TokenEditSelection {
+            id: Some("card-1".into()),
+            id_unique: true,
+            classes: vec!["card".into()],
+            selector: "#card-1".into(),
         }
     }
 
@@ -1232,10 +1249,10 @@ mod tests {
         let root = fixture("probe");
         fs::write(
             root.join("styles.css"),
-            ":root { --space: 16px; }\n.card { gap: var(--space); }\n.other { gap: var(--space); }\n",
+            ":root { --space: 16px; }\n#card-1 { gap: var(--space); }\n.other { gap: var(--space); }\n",
         )
         .unwrap();
-        let probe = probe_internal(&root, &selection(), &change("24px"))
+        let probe = probe_internal(&root, &instance_selection(), &change("24px"))
             .unwrap()
             .public;
         assert!(probe.eligible);
@@ -1249,11 +1266,45 @@ mod tests {
     }
 
     #[test]
-    fn instance_transaction_detaches_only_selected_rule() {
+    fn class_owned_rule_is_not_a_single_element_edit() {
+        let root = fixture("class-instance");
+        fs::write(
+            root.join("styles.css"),
+            ":root { --space: 16px; }\n.card { gap: var(--space); }\n",
+        )
+        .unwrap();
+        let probe = probe_internal(&root, &selection(), &change("24px"))
+            .unwrap()
+            .public;
+        assert!(probe.eligible);
+        assert!(!probe.instance_eligible);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn duplicate_live_id_is_not_a_single_element_edit() {
+        let root = fixture("duplicate-live-id");
+        fs::write(
+            root.join("styles.css"),
+            ":root { --space: 16px; }\n#card-1 { gap: var(--space); }\n",
+        )
+        .unwrap();
+        let mut selected = instance_selection();
+        selected.id_unique = false;
+        let probe = probe_internal(&root, &selected, &change("24px"))
+            .unwrap()
+            .public;
+        assert!(probe.eligible);
+        assert!(!probe.instance_eligible);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn instance_transaction_detaches_only_unique_id_rule() {
         let root = fixture("instance");
         fs::write(
             root.join("styles.css"),
-            ":root { --space: 16px; }\n.card { gap: var(--space); }\n.other { gap: var(--space); }\n",
+            ":root { --space: 16px; }\n#card-1 { gap: var(--space); }\n.other { gap: var(--space); }\n",
         )
         .unwrap();
         let decision = TokenEditDecision {
@@ -1264,7 +1315,7 @@ mod tests {
             expected_value: None,
             confirm_shared_global: false,
         };
-        let plan = resolve_plan(&root, &selection(), &change("24px"), &decision).unwrap();
+        let plan = resolve_plan(&root, &instance_selection(), &change("24px"), &decision).unwrap();
         assert!(plan.public.safe);
         let path = root.join(plan.public.path.as_ref().unwrap());
         let mut content = fs::read_to_string(&path).unwrap();
@@ -1272,7 +1323,7 @@ mod tests {
             plan.replacement_start.unwrap()..plan.replacement_end.unwrap(),
             "24px",
         );
-        assert!(content.contains(".card { gap: 24px; }"));
+        assert!(content.contains("#card-1 { gap: 24px; }"));
         assert!(content.contains(".other { gap: var(--space); }"));
         let _ = fs::remove_dir_all(root);
     }
