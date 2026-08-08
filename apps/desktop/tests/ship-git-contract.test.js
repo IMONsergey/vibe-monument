@@ -12,6 +12,9 @@ test('Ship commit is explicit, bounded and does not bypass repository hooks', ()
   assert.ok(native.includes('Your Git index already contains staged changes'));
   assert.ok(native.includes('arg("add").arg("--")'));
   assert.ok(native.includes('.args(["commit", "-m", &message])'));
+  assert.ok(native.includes('"--name-only", "-z"'));
+  assert.ok(native.includes('"--others", "--exclude-standard", "-z"'));
+  assert.ok(native.includes('remaining_files'));
   assert.ok(!native.includes('--no-verify'));
   assert.ok(!native.includes('git add .'));
   assert.ok(!native.includes('push'));
@@ -23,6 +26,7 @@ test('Ship UI shows the exact planned files before local commit', () => {
   assert.ok(panel.includes('Review files being committed'));
   assert.ok(panel.includes('Commit locally'));
   assert.ok(panel.includes('No push was performed.'));
+  assert.ok(panel.includes('new changes remain'));
   assert.ok(host.includes('git_ship_plan'));
   assert.ok(host.includes('git_ship_commit'));
 });
