@@ -13,6 +13,8 @@
     "allow-project-open",
     "allow-project-inspect",
     "allow-project-source-hints",
+    "allow-visual-source-plan",
+    "allow-visual-source-apply",
     "allow-runtime-start",
     "allow-runtime-status",
     "allow-runtime-stop",
