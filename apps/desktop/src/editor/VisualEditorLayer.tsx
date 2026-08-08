@@ -20,6 +20,12 @@ import {
   planVisualSourceEdit,
   type PreparedVisualSourceEdit,
 } from './sourceTransaction';
+import {
+  commitVisualTokenEdit,
+  planVisualTokenEdit,
+  type PreparedVisualTokenEdit,
+  type VisualTokenScope,
+} from './tokenTransaction';
 import type { VisualEditorState } from './types';
 
 function queuedMessage(result: { paused: boolean; queuedCount: number }, reason?: string): string {
@@ -36,6 +42,8 @@ export function VisualEditorLayer() {
   const [applying, setApplying] = useState(false);
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
   const [preparedSourceEdit, setPreparedSourceEdit] = useState<PreparedVisualSourceEdit | null>(null);
+  const [preparedTokenEdit, setPreparedTokenEdit] = useState<PreparedVisualTokenEdit | null>(null);
+  const [tokenScope, setTokenScope] = useState<VisualTokenScope>('element');
   const selectedLayer = useMemo(
     () => editor.tree?.nodes.find((node) => node.id === editor.selectedNodeId) ?? null,
     [editor.selectedNodeId, editor.tree],
@@ -69,6 +77,8 @@ export function VisualEditorLayer() {
     const selection = editor.selection;
     setApplyMessage(null);
     setPreparedSourceEdit(null);
+    setPreparedTokenEdit(null);
+    setTokenScope('element');
     setOwnership(null);
     if (!selection || !native) return;
     let disposed = false;
@@ -90,37 +100,53 @@ export function VisualEditorLayer() {
     void setVisualEditorActive(false).catch(() => undefined);
   }, []);
 
+  const dismissPrepared = useCallback(() => {
+    setPreparedSourceEdit(null);
+    setPreparedTokenEdit(null);
+    setTokenScope('element');
+  }, []);
+
   const queueWithCodex = useCallback(async (
     changes: VisualPropertyChange[],
     reason?: string,
   ): Promise<boolean> => {
     if (!editor.selection) return false;
     const result = await queueVisualPropertyEdit(editor.selection, changes);
-    setPreparedSourceEdit(null);
+    dismissPrepared();
     setApplyMessage(queuedMessage(result, reason));
     return true;
-  }, [editor.selection]);
+  }, [dismissPrepared, editor.selection]);
 
   const applyProperties = useCallback(async (changes: VisualPropertyChange[]): Promise<boolean> => {
     if (!editor.selection || applying) return false;
     setApplying(true);
     setApplyMessage(null);
-    setPreparedSourceEdit(null);
+    dismissPrepared();
     try {
-      const decision = await planVisualSourceEdit(editor.selection, changes);
-      if (decision.kind === 'deterministic') {
-        setPreparedSourceEdit(decision.prepared);
-        setApplyMessage(`Direct source edit ready · ${decision.prepared.plan.sourcePath}:${decision.prepared.plan.line}`);
+      const literalDecision = await planVisualSourceEdit(editor.selection, changes);
+      if (literalDecision.kind === 'deterministic') {
+        setPreparedSourceEdit(literalDecision.prepared);
+        setApplyMessage(`Direct source edit ready · ${literalDecision.prepared.plan.sourcePath}:${literalDecision.prepared.plan.line}`);
         return false;
       }
-      return await queueWithCodex(changes, decision.reason);
+
+      const tokenDecision = await planVisualTokenEdit(editor.selection, changes);
+      if (tokenDecision.kind === 'scope-choice') {
+        setPreparedTokenEdit(tokenDecision.prepared);
+        setTokenScope('element');
+        setApplyMessage(`Design token ${tokenDecision.prepared.tokenName} · choose source scope`);
+        return false;
+      }
+
+      const reason = tokenDecision.reason.includes('not ready') ? literalDecision.reason : tokenDecision.reason;
+      return await queueWithCodex(changes, reason);
     } catch (error) {
       setApplyMessage(error instanceof Error ? error.message : String(error));
       return false;
     } finally {
       setApplying(false);
     }
-  }, [applying, editor.selection, queueWithCodex]);
+  }, [applying, dismissPrepared, editor.selection, queueWithCodex]);
 
   const confirmSourceEdit = useCallback(async (): Promise<boolean> => {
     if (!preparedSourceEdit || applying) return false;
@@ -128,33 +154,54 @@ export function VisualEditorLayer() {
     setApplyMessage(null);
     try {
       const result = await commitVisualSourceEdit(preparedSourceEdit);
-      setPreparedSourceEdit(null);
+      dismissPrepared();
       setApplyMessage(`Applied directly · ${result.sourcePath}:${result.line} · saved to Versions`);
       window.setTimeout(() => { void requestEditorTree().catch(() => undefined); }, 220);
       return true;
     } catch (error) {
-      setPreparedSourceEdit(null);
+      dismissPrepared();
       setApplyMessage(`Direct edit needs attention · ${error instanceof Error ? error.message : String(error)}`);
       window.setTimeout(() => { void requestEditorTree().catch(() => undefined); }, 220);
       return false;
     } finally {
       setApplying(false);
     }
-  }, [applying, preparedSourceEdit]);
+  }, [applying, dismissPrepared, preparedSourceEdit]);
 
-  const useCodexForPrepared = useCallback(async (): Promise<boolean> => {
-    if (!preparedSourceEdit || applying) return false;
+  const confirmTokenEdit = useCallback(async (): Promise<boolean> => {
+    if (!preparedTokenEdit || applying) return false;
     setApplying(true);
     setApplyMessage(null);
     try {
-      return await queueWithCodex([preparedSourceEdit.change], 'direct edit was not chosen');
+      const result = await commitVisualTokenEdit(preparedTokenEdit, tokenScope);
+      dismissPrepared();
+      setApplyMessage(`Applied ${result.scope === 'token' ? `global ${result.tokenName}` : 'to this element'} · ${result.sourcePath}:${result.line} · saved to Versions`);
+      window.setTimeout(() => { void requestEditorTree().catch(() => undefined); }, 220);
+      return true;
+    } catch (error) {
+      dismissPrepared();
+      setApplyMessage(`Token edit needs attention · ${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => { void requestEditorTree().catch(() => undefined); }, 220);
+      return false;
+    } finally {
+      setApplying(false);
+    }
+  }, [applying, dismissPrepared, preparedTokenEdit, tokenScope]);
+
+  const useCodexForPrepared = useCallback(async (): Promise<boolean> => {
+    const change = preparedSourceEdit?.change ?? preparedTokenEdit?.change ?? null;
+    if (!change || applying) return false;
+    setApplying(true);
+    setApplyMessage(null);
+    try {
+      return await queueWithCodex([change], preparedTokenEdit ? 'design-token scope left to Codex' : 'direct edit was not chosen');
     } catch (error) {
       setApplyMessage(error instanceof Error ? error.message : String(error));
       return false;
     } finally {
       setApplying(false);
     }
-  }, [applying, preparedSourceEdit, queueWithCodex]);
+  }, [applying, preparedSourceEdit, preparedTokenEdit, queueWithCodex]);
 
   if (!native) return null;
 
@@ -183,10 +230,14 @@ export function VisualEditorLayer() {
             applying={applying}
             applyMessage={applyMessage}
             sourcePreview={preparedSourceEdit}
+            tokenPreview={preparedTokenEdit}
+            tokenScope={tokenScope}
+            onTokenScope={setTokenScope}
             onApply={applyProperties}
             onConfirmSource={confirmSourceEdit}
+            onConfirmToken={confirmTokenEdit}
             onUseCodex={useCodexForPrepared}
-            onDismissSourcePreview={() => setPreparedSourceEdit(null)}
+            onDismissPrepared={dismissPrepared}
           />
         </>
       ) : null}
