@@ -11,6 +11,9 @@ const editorController = await readFile(new URL('../src/editor/controller.ts', i
 const editorScript = await readFile(new URL('../src-tauri/src/preview_editor_script.rs', import.meta.url), 'utf8');
 
 test('visual property Apply tries deterministic source editing and preserves the Codex fallback', () => {
+  assert.ok(intent.includes('readTimelineStatus(project)'));
+  assert.ok(intent.includes('timelineStatus.dirty'));
+  assert.ok(intent.includes('direct editing is disabled until provenance is resolved'));
   assert.ok(intent.includes("project_source_transaction_preview"));
   assert.ok(intent.includes("project_source_transaction_commit"));
   assert.ok(intent.includes("plan.mode === 'deterministic'"));
