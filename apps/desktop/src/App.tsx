@@ -5,6 +5,7 @@ import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { FileTree } from './components/FileTree';
 import { PromptQueue } from './components/PromptQueue';
+import { ShipPanel } from './components/ShipPanel';
 import { VersionTimelinePanel } from './components/VersionTimelinePanel';
 import { CodexRuntime } from './codex/runtime';
 import { compileTurnText } from './context/turn';
@@ -54,6 +55,13 @@ import {
   type PromptQueueState,
   type QueuedPrompt,
 } from './queue/controller';
+import {
+  restoreFreshReview,
+  runFreshReview,
+  subscribeFreshReview,
+  type FreshReviewRecord,
+} from './review/controller';
+import { evaluateShipGate } from './ship/controller';
 import {
   backTimeline,
   checkpointCompletedTurn,
@@ -172,6 +180,9 @@ export function App() {
   const [promptQueueState, setPromptQueueState] = useState<PromptQueueState | null>(null);
   const [queueDispatching, setQueueDispatching] = useState(false);
   const [queueFailureOverride, setQueueFailureOverride] = useState<number | null>(null);
+  const [freshReview, setFreshReview] = useState<FreshReviewRecord | null>(null);
+  const [freshReviewRunning, setFreshReviewRunning] = useState(false);
+  const [shipOpen, setShipOpen] = useState(false);
   const handledCompletionSerial = useRef(0);
   const handledTurnSerial = useRef(0);
   const verificationProjectId = useRef<string | null>(null);
@@ -201,6 +212,16 @@ export function App() {
     return unsubscribe;
   }, [project?.id]);
 
+  useEffect(() => {
+    if (!project) {
+      setFreshReview(null);
+      return;
+    }
+    const unsubscribe = subscribeFreshReview(project.id, setFreshReview);
+    void restoreFreshReview(project.id);
+    return unsubscribe;
+  }, [project?.id]);
+
   const clearSelection = useCallback(() => setPreviewSelection(null), []);
 
   const refreshProjectSnapshot = useCallback(async (rootPath: string, projectId: string) => {
@@ -218,9 +239,11 @@ export function App() {
   const applyProject = useCallback(async (next: ProjectInspection) => {
     clearSelection();
     setTimelineOpen(false);
+    setShipOpen(false);
     setTimelineDiff(null);
     setTimelineState(null);
     setPromptQueueState(null);
+    setFreshReview(null);
     setQueueFailureOverride(null);
     setWorkspace((current) => ({ ...current, project: next }));
     setRuntimeUrl(null);
@@ -265,6 +288,7 @@ export function App() {
       setBrowserEvidence(null);
       setTimelineState(null);
       setTimelineDiff(null);
+      setFreshReview(null);
       return;
     }
     verificationProjectId.current = project.id;
@@ -273,6 +297,7 @@ export function App() {
     handledTurnSerial.current = workspace.turnSerial;
     void restoreVerification(project.id);
     void restoreBrowserEvidence(project.id);
+    void restoreFreshReview(project.id);
     void refreshTimeline(project).catch((error) => {
       setNotice(`Version history unavailable: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -373,7 +398,7 @@ export function App() {
   }, [codex, native]);
 
   const chooseProject = useCallback(async () => {
-    if (!native || opening || sending || queueDispatching || verificationBusy || timelineBusy || workspace.codexState === 'busy' || workspace.codexState === 'approval') return;
+    if (!native || opening || sending || queueDispatching || verificationBusy || timelineBusy || freshReviewRunning || workspace.codexState === 'busy' || workspace.codexState === 'approval') return;
     setOpening(true);
     setNotice(null);
     try {
@@ -389,7 +414,7 @@ export function App() {
     } finally {
       setOpening(false);
     }
-  }, [applyProject, native, opening, queueDispatching, runtimeRunning, sending, timelineBusy, verificationBusy, workspace.codexState]);
+  }, [applyProject, freshReviewRunning, native, opening, queueDispatching, runtimeRunning, sending, timelineBusy, verificationBusy, workspace.codexState]);
 
   const launchPreview = useCallback(async () => {
     if (!project || !selectedScript || runtimeStarting) return;
@@ -436,6 +461,7 @@ export function App() {
     && !timelineBusy
     && !verificationBusy
     && !browserEvidenceBusy
+    && !freshReviewRunning
     && !postTurnPending,
   );
 
@@ -447,6 +473,7 @@ export function App() {
     if (!project || workspace.codexState !== 'ready' || sending) return false;
     setSending(true);
     setTimelineBusy(true);
+    setShipOpen(false);
     setNotice(null);
     try {
       const prepared = await prepareTimeline(project);
@@ -469,6 +496,7 @@ export function App() {
   const submitPrompt = useCallback(async () => {
     const text = prompt.trim();
     if (!text || !project) return;
+    setShipOpen(false);
     if (workspace.codexState === 'auth-required' || workspace.codexState === 'approval') return;
     if (workspace.codexState === 'error' || workspace.codexState === 'idle') {
       setNotice('Codex is not ready. Resolve the connection before adding work.');
@@ -496,12 +524,14 @@ export function App() {
   const startNewTask = useCallback(() => {
     codex.newTask();
     setPrompt('');
+    setShipOpen(false);
     clearSelection();
     if (project) void detachPromptQueueThreads(project.id);
   }, [clearSelection, codex, project]);
 
   const selectTask = useCallback((threadId: string) => {
     codex.selectThread(threadId);
+    setShipOpen(false);
     if (project && promptQueueState?.items.length) void setPromptQueuePaused(project.id, true);
   }, [codex, project, promptQueueState?.items.length]);
 
@@ -546,6 +576,7 @@ export function App() {
   const runAllChecks = useCallback(async () => {
     if (!project || verificationBusy) return;
     setVerificationBusy(true);
+    setShipOpen(false);
     setDeveloperOpen(true);
     setTimelineOpen(false);
     setDeveloperTab('evidence');
@@ -560,6 +591,7 @@ export function App() {
   const captureBrowserNow = useCallback(async () => {
     if (!project || !runtimeUrl || browserEvidenceBusy) return;
     setBrowserEvidenceBusy(true);
+    setShipOpen(false);
     setDeveloperOpen(true);
     setTimelineOpen(false);
     setDeveloperTab('evidence');
@@ -571,6 +603,24 @@ export function App() {
       setBrowserEvidenceBusy(false);
     }
   }, [browserEvidenceBusy, project, runtimeUrl, workspace.turnSerial]);
+
+  const runFreshReviewNow = useCallback(async () => {
+    if (!project || freshReviewRunning || timelineBusy || verificationBusy || browserEvidenceBusy || postTurnPending || workspace.codexState !== 'ready') return;
+    setFreshReviewRunning(true);
+    setDeveloperOpen(false);
+    setTimelineOpen(false);
+    setShipOpen(true);
+    setNotice(null);
+    try {
+      const record = await runFreshReview(project);
+      setFreshReview(record);
+      if (record.status === 'error') setNotice(record.error || 'Fresh Review could not complete.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFreshReviewRunning(false);
+    }
+  }, [browserEvidenceBusy, freshReviewRunning, postTurnPending, project, timelineBusy, verificationBusy, workspace.codexState]);
 
   const startSignIn = useCallback(async () => {
     if (authStarting) return;
@@ -592,6 +642,7 @@ export function App() {
     if (!project) return;
     setTimelineState(result.state);
     setTimelineDiff(null);
+    setShipOpen(false);
     clearSelection();
     setQueueFailureOverride(null);
     await detachPromptQueueThreads(project.id).catch(() => undefined);
@@ -605,7 +656,7 @@ export function App() {
   }, [clearSelection, project, refreshPreview, refreshProjectSnapshot, runtimeUrl]);
 
   const restoreVersion = useCallback(async (checkpointId: string) => {
-    if (!project || timelineBusy || verificationBusy || sending || workspace.codexState === 'busy' || workspace.codexState === 'approval') return;
+    if (!project || timelineBusy || verificationBusy || freshReviewRunning || sending || workspace.codexState === 'busy' || workspace.codexState === 'approval') return;
     setTimelineBusy(true);
     setNotice(null);
     try {
@@ -615,10 +666,10 @@ export function App() {
     } finally {
       setTimelineBusy(false);
     }
-  }, [applyTimelineRestore, project, sending, timelineBusy, verificationBusy, workspace.codexState]);
+  }, [applyTimelineRestore, freshReviewRunning, project, sending, timelineBusy, verificationBusy, workspace.codexState]);
 
   const goTimelineBack = useCallback(async () => {
-    if (!project || !timelineState?.canBack || timelineBusy || verificationBusy || sending || workspace.codexState !== 'ready') return;
+    if (!project || !timelineState?.canBack || timelineBusy || verificationBusy || freshReviewRunning || sending || workspace.codexState !== 'ready') return;
     setTimelineBusy(true);
     setNotice(null);
     try {
@@ -628,10 +679,10 @@ export function App() {
     } finally {
       setTimelineBusy(false);
     }
-  }, [applyTimelineRestore, project, sending, timelineBusy, timelineState?.canBack, verificationBusy, workspace.codexState]);
+  }, [applyTimelineRestore, freshReviewRunning, project, sending, timelineBusy, timelineState?.canBack, verificationBusy, workspace.codexState]);
 
   const goTimelineForward = useCallback(async () => {
-    if (!project || !timelineState?.forwardCheckpointId || timelineBusy || verificationBusy || sending || workspace.codexState !== 'ready') return;
+    if (!project || !timelineState?.forwardCheckpointId || timelineBusy || verificationBusy || freshReviewRunning || sending || workspace.codexState !== 'ready') return;
     setTimelineBusy(true);
     setNotice(null);
     try {
@@ -641,10 +692,10 @@ export function App() {
     } finally {
       setTimelineBusy(false);
     }
-  }, [applyTimelineRestore, project, sending, timelineBusy, timelineState?.forwardCheckpointId, verificationBusy, workspace.codexState]);
+  }, [applyTimelineRestore, freshReviewRunning, project, sending, timelineBusy, timelineState?.forwardCheckpointId, verificationBusy, workspace.codexState]);
 
   const saveVersion = useCallback(async () => {
-    if (!project || timelineBusy || verificationBusy || sending || workspace.codexState !== 'ready') return;
+    if (!project || timelineBusy || verificationBusy || freshReviewRunning || sending || workspace.codexState !== 'ready') return;
     setTimelineBusy(true);
     setNotice(null);
     try {
@@ -656,7 +707,7 @@ export function App() {
     } finally {
       setTimelineBusy(false);
     }
-  }, [project, refreshTimeline, sending, timelineBusy, verificationBusy, workspace.codexState]);
+  }, [freshReviewRunning, project, refreshTimeline, sending, timelineBusy, verificationBusy, workspace.codexState]);
 
   const compareVersion = useCallback(async (checkpointId: string) => {
     if (!project || !timelineState || timelineBusy) return;
@@ -673,6 +724,7 @@ export function App() {
   const openTimeline = useCallback(async () => {
     if (!project) return;
     setDeveloperOpen(false);
+    setShipOpen(false);
     setTimelineOpen(true);
     setTimelineDiff(null);
     try {
@@ -685,14 +737,14 @@ export function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.metaKey || event.key.toLowerCase() !== 'z' || editableTarget(event.target)) return;
-      if (!project || sending || timelineBusy || verificationBusy || workspace.codexState !== 'ready') return;
+      if (!project || sending || timelineBusy || verificationBusy || freshReviewRunning || workspace.codexState !== 'ready') return;
       event.preventDefault();
       if (event.shiftKey) void goTimelineForward();
       else void goTimelineBack();
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [goTimelineBack, goTimelineForward, project, sending, timelineBusy, verificationBusy, workspace.codexState]);
+  }, [freshReviewRunning, goTimelineBack, goTimelineForward, project, sending, timelineBusy, verificationBusy, workspace.codexState]);
 
   const currentTimelineCheckpoint = timelineState?.checkpoints.find((checkpoint) => checkpoint.id === timelineState.currentCheckpointId) ?? null;
   const currentCodeTurnSerial = timelineState
@@ -714,7 +766,7 @@ export function App() {
     || workspace.codexState === 'approval'
   ));
   const verificationStatus = deterministicEvidenceStale && verificationProgress ? 'Checks stale' : verificationLabel(verificationProgress);
-  const timelineInteractionBusy = timelineBusy || verificationBusy || sending || queueDispatching || workspace.codexState === 'busy' || workspace.codexState === 'approval';
+  const timelineInteractionBusy = timelineBusy || verificationBusy || freshReviewRunning || sending || queueDispatching || workspace.codexState === 'busy' || workspace.codexState === 'approval';
   const currentVersionLabel = currentTimelineCheckpoint
     ? (currentTimelineCheckpoint.kind === 'baseline' ? 'Original' : `V${currentTimelineCheckpoint.sequence}`)
     : null;
@@ -731,6 +783,37 @@ export function App() {
     && prompt.trim()
     && (!canExecutePromptNow || queueDispatching || (promptQueueState?.items.length ?? 0) > 0),
   );
+  const shipGate = useMemo(() => evaluateShipGate({
+    project,
+    timeline: timelineState,
+    verification: verificationProgress,
+    browser: browserEvidence,
+    review: freshReview,
+    queue: promptQueueState,
+    workspace,
+    browserRequired: Boolean(selectedScript),
+    runtimeAvailable: Boolean(runtimeUrl),
+    postTurnPending,
+    verificationBusy,
+    browserBusy: browserEvidenceBusy,
+    timelineBusy,
+    reviewBusy: freshReviewRunning,
+  }), [
+    browserEvidence,
+    browserEvidenceBusy,
+    freshReview,
+    freshReviewRunning,
+    postTurnPending,
+    project,
+    promptQueueState,
+    runtimeUrl,
+    selectedScript,
+    timelineBusy,
+    timelineState,
+    verificationBusy,
+    verificationProgress,
+    workspace,
+  ]);
 
   useEffect(() => {
     setQueueFailureOverride(null);
@@ -788,8 +871,8 @@ export function App() {
     <div className="monument-app">
       <header className="topbar" data-tauri-drag-region>
         <div className="window-space" data-tauri-drag-region />
-        <button className="brand-button" type="button" onClick={() => { setDeveloperOpen(false); setTimelineOpen(false); }}>Monument</button>
-        <button className="project-switcher" type="button" onClick={chooseProject} disabled={!native || opening || sending || queueDispatching || timelineBusy || verificationBusy || workspace.codexState === 'busy' || workspace.codexState === 'approval'}>
+        <button className="brand-button" type="button" onClick={() => { setDeveloperOpen(false); setTimelineOpen(false); setShipOpen(false); }}>Monument</button>
+        <button className="project-switcher" type="button" onClick={chooseProject} disabled={!native || opening || sending || queueDispatching || timelineBusy || verificationBusy || freshReviewRunning || workspace.codexState === 'busy' || workspace.codexState === 'approval'}>
           <span className="project-indicator" /><span>{project?.name ?? 'Open project'}</span><span className="chevron">⌄</span>
         </button>
         {project?.git.branch ? <span className="branch-label">{project.git.branch}</span> : null}
@@ -801,11 +884,13 @@ export function App() {
           </div>
         ) : null}
         <div className="topbar-spacer" />
-        {verificationStatus ? <button className={`verification-chip ${deterministicEvidenceStale ? 'stale' : verificationProgress?.evidence.status ?? ''}`} type="button" onClick={() => { setTimelineOpen(false); setDeveloperOpen(true); setDeveloperTab('evidence'); }}>{verificationStatus}</button> : null}
+        {verificationStatus ? <button className={`verification-chip ${deterministicEvidenceStale ? 'stale' : verificationProgress?.evidence.status ?? ''}`} type="button" onClick={() => { setTimelineOpen(false); setShipOpen(false); setDeveloperOpen(true); setDeveloperTab('evidence'); }}>{verificationStatus}</button> : null}
         <div className={`codex-status ${workspace.codexState}`}><span />{statusText(workspace.codexState)}</div>
         {workspace.codexState === 'auth-required' ? <button className="auth-button" type="button" disabled={authStarting} onClick={() => void startSignIn()}>{authStarting ? 'Opening…' : 'Sign in'}</button> : null}
-        <button className="quiet-button" type="button" onClick={() => { setTimelineOpen(false); setDeveloperOpen((value) => !value); }}>Under the hood</button>
-        <button className="ship-button" type="button" disabled title="Ship gates require broader evidence than deterministic project checks">Ship</button>
+        <button className="quiet-button" type="button" onClick={() => { setTimelineOpen(false); setShipOpen(false); setDeveloperOpen((value) => !value); }}>Under the hood</button>
+        <button className={`ship-button ${shipGate.ready ? 'ready' : ''}`} type="button" onClick={() => { setTimelineOpen(false); setDeveloperOpen(false); setShipOpen((value) => !value); }} title={shipGate.ready ? 'Current version passed the Ship gate' : `${shipGate.blockingCount} Ship gate${shipGate.blockingCount === 1 ? '' : 's'} remaining`}>
+          {shipGate.ready ? 'Ship ✓' : 'Ship'}
+        </button>
       </header>
 
       <div className="product-layout">
@@ -891,7 +976,7 @@ export function App() {
                     event.preventDefault(); void submitPrompt();
                   }
                 }}
-                placeholder={project ? (workspace.codexState === 'auth-required' ? 'Sign in to Codex to start building…' : workspace.approval ? 'Resolve the request above to continue…' : workspace.codexState === 'busy' || postTurnPending || verificationBusy || timelineBusy || browserEvidenceBusy ? (selection ? 'Describe the next change for the selected element…' : 'Add the next change…') : selection ? 'Tell Monument what to change about the selected element…' : 'Tell Monument what to build or change…') : 'Open a project to start building…'}
+                placeholder={project ? (workspace.codexState === 'auth-required' ? 'Sign in to Codex to start building…' : workspace.approval ? 'Resolve the request above to continue…' : workspace.codexState === 'busy' || postTurnPending || verificationBusy || timelineBusy || browserEvidenceBusy || freshReviewRunning ? (selection ? 'Describe the next change for the selected element…' : 'Add the next change…') : selection ? 'Tell Monument what to change about the selected element…' : 'Tell Monument what to build or change…') : 'Open a project to start building…'}
                 disabled={!project || workspace.codexState === 'approval' || workspace.codexState === 'auth-required'}
               />
               <div className="composer-footer">
@@ -902,6 +987,7 @@ export function App() {
                   {currentVersionLabel ? <span className="context-chip">History · {currentVersionLabel}</span> : null}
                   {(promptQueueState?.items.length ?? 0) > 0 ? <span className="context-chip">Next · {promptQueueState?.items.length}</span> : null}
                   {verificationStatus ? <span className={`context-chip verification-context ${deterministicEvidenceStale ? 'stale' : verificationProgress?.evidence.status ?? ''}`}>{verificationStatus}</span> : null}
+                  {freshReview && freshReview.checkpointId === currentTimelineCheckpoint?.id ? <span className={`context-chip review-context ${freshReview.status}`}>Review · {freshReview.status}</span> : null}
                   {workspace.account?.planType ? <span className="context-chip">Codex · {workspace.account.planType}</span> : null}
                 </div>
                 <div className="composer-actions">
@@ -943,6 +1029,20 @@ export function App() {
             onSave={() => void saveVersion()}
             onRestore={(checkpointId) => void restoreVersion(checkpointId)}
             onCompare={(checkpointId) => void compareVersion(checkpointId)}
+          />
+        ) : null}
+
+        {shipOpen ? (
+          <ShipPanel
+            gate={shipGate}
+            review={freshReview}
+            reviewRunning={freshReviewRunning}
+            onClose={() => setShipOpen(false)}
+            onRunChecks={() => { setShipOpen(false); void runAllChecks(); }}
+            onCaptureBrowser={() => { setShipOpen(false); void captureBrowserNow(); }}
+            onRunReview={() => void runFreshReviewNow()}
+            onOpenQueue={() => setShipOpen(false)}
+            onReviewChange={setFreshReview}
           />
         ) : null}
       </div>
