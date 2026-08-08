@@ -12,7 +12,7 @@ M2.1 correctly refuses direct mutation when a selected property is backed by `va
 
 The product rule is:
 
-> **Never mutate a shared design token just because one selected element changed. Prove token ownership, show blast radius, require an explicit material scope choice, re-prove on commit, then bind the result to the normal engineering chain.**
+> **Never mutate a shared design token just because one selected element changed. Prove token ownership, prove the material scope, show blast radius, require explicit confirmation where needed, re-prove on commit, then bind the result to the normal engineering chain.**
 
 ## End-to-end product flow
 
@@ -33,9 +33,9 @@ Properties now performs:
 5. native host discovers bounded definitions + usages;
 6. Properties shows the token, source owner and blast radius;
 7. user chooses one material scope:
-   - **This element**;
-   - **Local scope**;
-   - **Global token**;
+   - **This element** only when a unique live DOM id and an id-owned source rule prove true single-instance scope;
+   - **Local scope** for an explicitly proven selected scoped token owner;
+   - **Global token** for an explicitly chosen global definition;
    - **Use Codex**;
 8. global shared mutation requires explicit confirmation;
 9. Monument runs native transaction preview;
@@ -70,7 +70,7 @@ Returns:
 - whether each scoped definition is proven against selected id/class evidence;
 - bounded usage count;
 - truncation state;
-- whether instance detachment is eligible.
+- whether true single-element instance detachment is eligible.
 
 ### M2.2 dry-run
 
@@ -88,19 +88,41 @@ Commit independently re-runs probe and decision resolution. Frontend preview out
 
 ### This element / instance detach
 
-When one exact selected rule is proven with id/class ownership evidence, Monument may replace:
+`This element` has a deliberately stricter proof standard than generic source ownership.
+
+Monument may replace a token-backed declaration with a literal as a single-element direct edit only when all of the following are true:
+
+- the live selected element has a non-empty DOM id;
+- the preview proves that id is unique in the current live document with `document.querySelectorAll`;
+- the exact source declaration owner is non-conditional;
+- that source selector contains the proven id and reaches the native id-owner threshold;
+- the full token probe remains non-truncated and unambiguous.
+
+Example eligible source:
 
 ```css
-gap: var(--space-4);
+#hero-card {
+  gap: var(--space-4);
+}
 ```
 
-with the requested literal value in that same proven declaration.
+Monument may then replace it with:
 
-This intentionally detaches only that selected source rule from the token. Monument does not synthesize a new selector from preview strings.
+```css
+#hero-card {
+  gap: 24px;
+}
+```
+
+A class-owned rule such as `.card { gap: var(--space-4) }` is **not** a single-element edit because changing it may affect many live instances. It may still expose a proven token scope or route to Codex, but it never receives `This element` write authority.
+
+Duplicate live ids also disable instance detachment even when the source selector contains the id.
+
+Monument never synthesizes a new selector from untrusted preview text.
 
 ### Local scope
 
-A scoped custom-property definition is directly editable only when its selector itself has strong id/class evidence for the selected element.
+A scoped custom-property definition is directly editable only when its selector itself has strong id/class evidence for the selected element and the definition is not inside a conditional CSS scope.
 
 Example:
 
@@ -111,7 +133,9 @@ Example:
 }
 ```
 
-The local definition can be offered as an explicit choice. An unrelated `.other { --space-4: ... }` definition is visible as evidence but receives no deterministic write authority for the selected `.card`.
+The local definition can be offered as an explicit scope choice. An unrelated `.other { --space-4: ... }` definition is visible as evidence but receives no deterministic write authority for the selected `.card`.
+
+Local scope is intentionally distinct from `This element`: changing a class-owned local token can affect multiple instances of the component/class.
 
 ### Global token
 
@@ -119,9 +143,17 @@ Definitions owned by `:root`, `html`, or `html:root` are global.
 
 Global mutation is always an explicit choice. When more than one bounded usage is proven, Apply is physically disabled until the user confirms the shared blast radius.
 
+### Responsive / conditional scope
+
+M2.2 tracks at-rule ancestry while parsing CSS.
+
+A selected property owner inside `@media` or another conditional/nested at-rule does not receive direct token authority. Conditional token definitions remain visible as evidence but are read-only in this gate.
+
+This is deliberately conservative: breakpoint-aware authoring requires an explicit responsive-scope product model rather than pretending a conditional rule is a normal local owner.
+
 ### Use Codex
 
-Codex remains available at all times and is the mandatory fallback when deterministic proof is missing, truncated, ambiguous or structurally unsupported.
+Codex remains available at all times and is the mandatory fallback when deterministic proof is missing, truncated, ambiguous, conditional or structurally unsupported.
 
 ## Safety boundaries
 
@@ -142,6 +174,8 @@ A truncated scan cannot grant deterministic mutation authority.
 - property owner selector score must contain proven id/class evidence;
 - exactly one selected property owner is required;
 - duplicate owners are refused, never ranked into authority;
+- `This element` additionally requires unique live id evidence and an id-owned source selector;
+- responsive/conditional property owners do not receive direct authority;
 - only one simple `var(--token)` reference is deterministic in this gate;
 - token fallbacks, calc/alias expression ownership and other token expression graphs remain Codex-backed.
 
@@ -160,7 +194,7 @@ A stale or ambiguous target is rejected and must be reselected against current s
 
 A global token with more than one proven usage cannot be mutated unless `confirmSharedGlobal` is explicitly true.
 
-Scoped token mutation requires `selectedScope === true` from native selector proof.
+Scoped token mutation requires `selectedScope === true` from native selector proof and refuses conditional definitions.
 
 ### Filesystem / write boundary
 
@@ -170,6 +204,7 @@ Commit:
 - checks target with `symlink_metadata`;
 - refuses symlink and non-file targets;
 - canonicalizes target and requires it to remain inside canonical root;
+- re-runs token/property ownership resolution immediately before mutation;
 - rechecks the exact replacement range/source value;
 - validates the requested CSS value with bounded balanced grammar;
 - validates the full resulting CSS structure;
@@ -178,6 +213,8 @@ Commit:
 - preserves permissions;
 - atomically renames temp over the source target;
 - uses no interpolated shell and no blind regex replacement.
+
+The same product-level source-mutation/orchestration locks that protect M2.1 also prevent overlapping Monument writes/checks/review work. External editors are treated as untrusted concurrent actors; any source mismatch at commit causes refusal rather than best-effort patching.
 
 ## Properties UX implemented
 
@@ -193,12 +230,13 @@ A token-backed single-property draft gets a dedicated source-native card contain
 - global definition source + blast-radius details;
 - required shared-global confirmation;
 - source before/after preview;
-- explicit Codex fallback.
+- explicit Codex fallback;
+- visible warning for responsive/conditional definitions that are intentionally read-only.
 
 Default choice is the narrowest proven safe scope:
 
-1. This element, when instance detachment is proven;
-2. a selected local scope when instance ownership is unavailable;
+1. `This element` only when unique live id + id-owned source proof exists;
+2. a selected non-conditional local scope when instance ownership is unavailable;
 3. otherwise Codex.
 
 Global mutation is never the default.
@@ -230,14 +268,18 @@ The handoff also carries token name, selected scope and affected usage count for
 `token_transaction.rs` covers:
 
 - token ownership + blast-radius discovery;
-- instance detachment;
+- unique-id-only instance detachment;
+- class-owned rule refusal for `This element`;
+- duplicate live-id refusal;
 - shared global confirmation;
 - selected local-scope proof;
-- duplicate selected property-owner refusal.
+- duplicate selected property-owner refusal;
+- responsive selected-property refusal;
+- conditional token-definition refusal.
 
 `token_scope.rs` separately covers exact token-name usage matching so `--space` is not confused with `--space-large`.
 
-### Node regression contract
+### Node regression contracts
 
 `tests/visual-editor-token-editing.test.js` locks:
 
@@ -245,9 +287,18 @@ The handoff also carries token name, selected scope and affected usage count for
 - command registration / trusted-main capability;
 - explicit scope UX;
 - shared-global confirmation;
+- responsive/conditional refusal;
 - source preview;
 - Timeline/evidence handoff;
 - preservation of literal direct editing and Codex fallback.
+
+`tests/visual-editor-token-instance-safety.test.js` locks the end-to-end live-id proof path:
+
+- preview uniqueness check;
+- bounded selection normalization;
+- frontend propagation;
+- native unique-id + id-owned selector requirement;
+- class/duplicate-id refusal tests.
 
 ### Production source contract
 
@@ -256,7 +307,7 @@ The handoff also carries token name, selected scope and affected usage count for
 - `scripts/check_native_source.mjs`;
 - `scripts/check_token_editing.mjs`.
 
-The token contract checks production command registration, capability isolation, source-write safety, UI and generation handoff.
+The token contract checks production command registration, capability isolation, source-write safety, unique-instance authority, conditional refusal, UI and generation handoff.
 
 ## Deliberately not claimed by M2.2 core
 
@@ -285,9 +336,10 @@ M2.2 core is complete when the exact PR head has:
 - green Rust unit tests / `cargo test --all-targets` on Intel CI;
 - token-backed Properties scope UX;
 - visible blast radius;
-- deterministic instance/local/global transaction paths;
+- deterministic unique-instance/local/global transaction paths;
 - explicit shared-global confirmation;
 - native re-resolution on commit;
+- responsive/conditional direct-edit refusal;
 - atomic source write;
 - exact Timeline/evidence/Fresh Review/Ship handoff;
 - Codex fallback for every unsupported/ambiguous case;
@@ -298,4 +350,4 @@ M2.2 core is complete when the exact PR head has:
 
 The correct hierarchy is:
 
-> **Prove scope → expose blast radius → ask only when the choice is material → preview exact source intent → re-prove natively → mutate source atomically → bind evidence. Otherwise use Codex.**
+> **Prove ownership → prove scope → expose blast radius → ask only when the choice is material → preview exact source intent → re-prove natively → mutate source atomically → bind evidence. Otherwise use Codex.**
