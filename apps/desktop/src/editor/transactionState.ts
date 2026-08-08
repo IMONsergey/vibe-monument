@@ -6,6 +6,7 @@ export interface SourceTransactionCheckpointRef {
 const pendingSourceTransactions = new Set<string>();
 const unacknowledgedCheckpoints = new Map<string, SourceTransactionCheckpointRef>();
 const validatingSourceTransactions = new Set<string>();
+const orchestrationBlockedProjects = new Set<string>();
 
 type Listener = (projectId: string) => void;
 const listeners = new Set<Listener>();
@@ -64,6 +65,17 @@ export function endSourceTransactionValidation(projectId: string): void {
 
 export function isSourceTransactionValidationBusy(projectId: string | null | undefined): boolean {
   return Boolean(projectId && validatingSourceTransactions.has(projectId));
+}
+
+export function setSourceTransactionOrchestrationBlocked(projectId: string, blocked: boolean): void {
+  if (!projectId) return;
+  if (blocked) orchestrationBlockedProjects.add(projectId);
+  else orchestrationBlockedProjects.delete(projectId);
+  emit(projectId);
+}
+
+export function isSourceTransactionOrchestrationBlocked(projectId: string | null | undefined): boolean {
+  return Boolean(projectId && orchestrationBlockedProjects.has(projectId));
 }
 
 export function subscribeSourceTransactionState(listener: Listener): () => void {
