@@ -47,6 +47,24 @@ html.visual-editor-active .preview-local-toolbar { display: none; }
 .property-direct-source-card p { margin: 0; color: var(--muted); font-size: 7.8px; line-height: 1.45; }
 .property-direct-source-card p code { color: var(--ink); font-size: 7.6px; }
 
+.property-token-source-card { margin: 0 9px 9px; padding: 9px; display: grid; gap: 8px; border: 1px solid rgba(86,79,155,.19); border-radius: 9px; background: rgba(86,79,155,.035); }
+.property-token-source-card.global { border-color: rgba(154,103,24,.24); background: rgba(154,103,24,.04); }
+.property-token-source-head { display: flex; align-items: center; gap: 6px; }
+.property-token-source-head > div { min-width: 0; display: inline-flex; align-items: center; gap: 6px; }
+.property-token-source-head strong { font-size: 9px; }
+.property-token-source-head code { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.property-token-source-head > span { margin-left: auto; color: var(--muted); font-size: 7.3px; white-space: nowrap; }
+.property-token-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.property-token-scope button { min-width: 0; min-height: 43px; display: grid; align-content: center; gap: 2px; border: 1px solid var(--line); border-radius: 7px; padding: 6px 7px; background: rgba(255,255,255,.7); color: var(--ink); text-align: left; cursor: pointer; }
+.property-token-scope button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8.2px; }
+.property-token-scope button span { color: var(--muted); font-size: 7px; }
+.property-token-scope button.active { border-color: rgba(86,79,155,.36); box-shadow: 0 0 0 2px rgba(86,79,155,.045); background: rgba(255,255,255,.96); }
+.property-token-source-card.global .property-token-scope button.active { border-color: rgba(154,103,24,.38); box-shadow: 0 0 0 2px rgba(154,103,24,.045); }
+.property-direct-source-head.token-path { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
+.property-direct-source-head.token-path > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.property-direct-source-head.token-path > span { justify-self: end; }
+.property-token-source-card > p { margin: 0; color: var(--muted); font-size: 7.8px; line-height: 1.45; }
+
 .property-apply-bar { flex: 0 0 auto; min-height: 54px; display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-top: 1px solid var(--line); background: rgba(248,248,245,.985); }
 .property-apply-bar > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
 .property-apply-bar strong { font-size: 9.5px; }
