@@ -267,6 +267,15 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
   function emitTree() {
     if (!active) return;
     send('tree', treeSnapshot());
+    if (!selectedId) return;
+    const selectedElement = elementById.get(selectedId);
+    if (selectedElement instanceof Element && selectedElement.isConnected) {
+      draw(selectedOverlay, selectedElement);
+      send('selection', selectionPayload(selectedElement));
+    } else {
+      selectedId = null;
+      if (selectedOverlay) selectedOverlay.style.display = 'none';
+    }
   }
 
   function scheduleTree() {
@@ -359,7 +368,11 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
     selectElement(element);
   }
 
-  const mutationObserver = new MutationObserver(scheduleTree);
+  const mutationObserver = new MutationObserver((records) => {
+    if (!active) return;
+    const hasProductMutation = records.some((record) => !editorNode(record.target));
+    if (hasProductMutation) scheduleTree();
+  });
   function observe() {
     if (!document.documentElement) return;
     mutationObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
