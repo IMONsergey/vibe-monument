@@ -12,7 +12,7 @@ Target formula:
 
 > **Figma Make simplicity × Lovable autonomy × Framer-class direct editing × Codex/VibeOS engineering depth.**
 
-The running product is the primary workspace. Prompting, direct visual editing, history, evidence, review and shipping are one continuous product loop.
+The running product is the primary workspace. Prompting, direct visual editing, history, evidence, review and shipping are one continuous loop.
 
 Monument is not:
 - a VS Code clone;
@@ -30,14 +30,15 @@ Monument is not:
 6. **Visual context is evidence, not authority.** DOM selectors, runtime values and source hints must be independently resolved before deterministic writes.
 7. **Remote preview is untrusted.** It may emit bounded visual evidence but receives no generic filesystem/process/Git/Codex/system/source-write authority.
 8. **Opening a repository never executes project code.** Automatic project scripts require explicit project-level consent.
-9. **Direct editing is proof-driven.** A lower hit rate is preferable to an incorrect deterministic write.
+9. **Direct editing is proof-driven.** A lower hit rate is preferable to an incorrect deterministic source write.
 10. **Scope is part of ownership.** Property/token/source identity is insufficient when a mutation may affect multiple instances, components, breakpoints or global consumers.
 11. **Cascade is part of ownership.** A weaker stylesheet/class source cannot outrank a proven or potentially overriding inline owner.
 12. **Blast radius is evidence, not fake precision.** Source-reference counts do not claim exact live-node impact through cascade/inheritance.
 13. **Source lanes have precedence.** Competing source representations for one computed property must never race silently.
 14. **Dynamic JavaScript is reasoning work until statically proven otherwise.** Monument does not execute project JS to discover visual ownership.
-15. **Independent vetoes may reduce hit rate.** When one resolver can miss multi-property semantics, a second bounded native guard may veto direct mode but never grant write authority by itself.
-16. **Users should not need Git/Codex protocol knowledge to use Monument well.**
+15. **Independent vetoes may reduce direct hit rate but never grant write authority.**
+16. **Write authority is re-proved at commit.** Frontend preflight is UX; the final native writer is authoritative.
+17. **Users should not need Git/Codex protocol knowledge to use Monument well.**
 
 ## 3. Normal product loop
 
@@ -45,14 +46,15 @@ Monument is not:
 2. See the running product.
 3. Describe a change or enter Visual Editor.
 4. Optionally select a live element through canvas/Layers.
-5. Monument chooses the safest execution class/source lane.
-6. The resulting source generation becomes a reversible Version Timeline checkpoint.
-7. Deterministic/browser evidence binds to that exact generation.
-8. Failed evidence may enter bounded repair.
-9. Fresh Review independently inspects the exact saved generation.
-10. Ship becomes Ready only when blocking evidence/review/work gates pass.
-11. Local Git commit is explicit.
-12. Push/PR/network publication remains separate and explicit.
+5. Monument chooses the safest source lane.
+6. Direct lanes re-prove source ownership natively; ambiguous work routes to Codex.
+7. The resulting source generation becomes a reversible Version Timeline checkpoint.
+8. Deterministic/browser evidence binds to that exact generation.
+9. Failed evidence may enter bounded repair.
+10. Fresh Review independently inspects the exact saved generation.
+11. Ship becomes Ready only when blocking evidence/review/work gates pass.
+12. Local Git commit is explicit.
+13. Push/PR/network publication remains separate and explicit.
 
 Routine users should spend almost all their time in Preview + Prompt + Visual Editor.
 
@@ -69,8 +71,9 @@ Tauri / Rust native host
         ├── Select / Layers / Properties bridge
         ├── literal CSS transaction engine
         ├── CSS token scope + transaction engine
-        ├── bounded JSX/Tailwind parser + transaction engine
+        ├── bounded JSX/Tailwind ownership core
         ├── independent Tailwind multi-property conflict guard
+        ├── hardened guarded markup commit wrapper
         ├── Browser Evidence
         ├── deterministic verification
         ├── shadow-Git Version Timeline
@@ -88,7 +91,7 @@ Codex remains the reasoning/coding engine. Monument owns product UX, local orche
 ### Native/product foundation
 - React + TypeScript + Vite product shell;
 - Tauri 2 macOS host;
-- real project picker and inspection;
+- real project picker/inspection;
 - framework/package-manager/script discovery;
 - real Git branch/remote/change count;
 - managed local dev runtime;
@@ -116,7 +119,7 @@ Codex remains the reasoning/coding engine. Monument owns product UX, local orche
 - unsupported/structural Apply through Prompt Queue/Codex to real source;
 - no durable preview-only styling.
 
-Deep record: [`VISUAL_EDITOR_M1_IMPLEMENTATION.md`](VISUAL_EDITOR_M1_IMPLEMENTATION.md).
+Deep record: [`VISUAL_EDITOR_M1_IMPLEMENTATION.md`](VISUAL_EDITOR_M1_IMPLEMENTATION.md).  
 Target architecture: [`VISUAL_EDITOR_SPEC.md`](VISUAL_EDITOR_SPEC.md).
 
 ### M2.1 — literal CSS source transactions
@@ -150,7 +153,7 @@ M2.2 adds:
 - independent token-scope cross-check;
 - same visual Timeline/evidence/review/Ship handoff.
 
-Truncated token evidence cannot expose deterministic scope actions and cannot fall through into a weaker direct lane.
+Truncated token evidence forces Codex and cannot fall through into a weaker direct lane.
 
 Deep record: [`VISUAL_EDITOR_M2_TOKEN_SCOPE.md`](VISUAL_EDITOR_M2_TOKEN_SCOPE.md).
 
@@ -170,100 +173,85 @@ Deep record: [`VISUAL_EDITOR_M2_TOKEN_SCOPE.md`](VISUAL_EDITOR_M2_TOKEN_SCOPE.md
 
 Branch / stacked PR:
 - `monument/visual-editor-m2-tailwind-jsx`;
-- PR #43 on top of M2.2 PR #41 until the parent merges.
+- PR #43 stacked on M2.2 PR #41 until the parent merges.
 
 Canonical deep contract:
 - [`VISUAL_EDITOR_M2_MARKUP_OWNERSHIP.md`](VISUAL_EDITOR_M2_MARKUP_OWNERSHIP.md).
 
-`VISUAL_EDITOR_M2_TAILWIND_JSX.md` exists only as a compatibility pointer and is not a second architecture contract.
+`VISUAL_EDITOR_M2_TAILWIND_JSX.md` is only a compatibility pointer.
 
-M2.3 ships as one module: bounded JSX lexical parsing, source ownership, Tailwind utility semantics, independent multi-property conflict guard, JSX inline-style ownership, source-lane routing, atomic mutation, Properties UX and regression contracts.
+M2.3 ships as one serious module: lexical JSX model, source ownership, cascade routing, Tailwind semantics, independent conflict veto, JSX inline-style ownership, guarded native commit, Properties UX and production regression contracts.
 
 ### 6.1 Bounded JSX source model
 
 `jsx_source.rs` intentionally prefers false negatives to lexical false positives.
 
 It:
-- bounds opening-tag bytes and attribute count;
-- parses only the subset required for deterministic ownership;
-- excludes JSX-shaped strings, template literals and comments;
+- bounds opening-tag bytes and attributes;
+- excludes JSX-shaped strings/templates/comments;
 - skips closing tags without hiding later duplicate owners;
-- refuses JSX expression slash ambiguity;
-- refuses an ordinary JS file when bare slash/regex-vs-division syntax cannot be classified safely;
+- refuses slash/regex-vs-division ambiguity instead of guessing;
 - never executes project JavaScript.
 
 ### 6.2 Strong source DOM identity
 
-M2.3 direct markup requires:
+Direct markup requires:
 - bounded live DOM id;
 - `idUnique === true` in the live document;
-- exactly one static `.tsx/.jsx` source tag with the same literal id and same real lowercase DOM tag;
-- no custom React component abstraction;
+- exactly one static `.tsx/.jsx` source tag with the same literal id and same lowercase real DOM/custom-element tag;
+- no custom component abstraction;
 - no owner attribute spread;
 - no duplicate `id/className/class/style` ownership;
-- non-truncated bounded scan.
+- non-truncated scan.
 
-The product describes this as an edit to the owning source. It does not falsely claim preview-only instance state.
+The product describes this as an owning-source edit, not preview-only instance state.
 
-### 6.3 Correct cascade / source-lane routing
+### 6.3 Exact cascade / source-lane routing
 
-For one changed visual property:
+For one property:
 
-1. M2.2 token ownership is resolved first when applicable.
-2. M2.3 performs a native markup probe to establish **inline-style cascade safety**.
-3. If a deterministic JSX inline-style literal owns the property, that lane wins.
-4. If inline-style ownership is dynamic/ambiguous for the property, direct stylesheet/Tailwind fallback is blocked and the edit goes to Codex.
-5. Only after inline-style safety is established does Monument ask M2.1 CSS ownership about competition with Tailwind.
-6. A deterministic/assisted CSS owner — or an unavailable CSS preflight — suppresses Tailwind direct mode.
-7. Before Tailwind receives direct authority, an independent native conflict guard re-scans the exact static JSX owner for shorthands/helpers that can also affect the requested property.
-8. Static Tailwind may become direct only when no stronger/ambiguous inline-style owner, no competing CSS owner and no conflict-guard veto exists.
-9. Existing literal CSS/Codex fallback continues normally after markup routing.
+1. M2.2 token ownership first when applicable.
+2. Native markup probe establishes JSX inline-style cascade safety.
+3. Deterministic static inline-style literal wins.
+4. Dynamic/ambiguous inline-style ownership forces Codex for the property.
+5. Only after inline safety does M2.1 CSS ownership compete with Tailwind.
+6. Deterministic/assisted CSS ownership or unavailable CSS preflight suppresses Tailwind direct mode.
+7. Independent native Tailwind conflict guard checks hidden multi-property competitors.
+8. Static Tailwind may become direct only after all previous proof lines pass.
+9. Existing literal CSS/Codex fallback continues normally otherwise.
 
-The invariant is:
+Routing invariant:
 
-> **inline-style cascade safety → CSS-vs-Tailwind precedence → independent Tailwind conflict veto → Tailwind/CSS → Codex**.
-
-This prevents a real but visually ineffective source write when a stronger or hidden property owner exists.
+> **token → inline-style cascade safety → CSS-vs-Tailwind precedence → independent Tailwind veto → Tailwind/CSS → Codex**.
 
 ### 6.4 Tailwind lane
 
 Direct Tailwind requires:
-- one static literal `className` / `class`;
-- requested property belongs to an explicit utility family;
-- exactly one effective base utility owns that family;
-- exact source utility is present on the selected live element;
-- no responsive/state variant in that property-affecting family;
+- static literal `className` / `class`;
+- explicit supported utility family;
+- exact source utility present on the live element;
+- no responsive/state variant in the property family;
 - no unsupported important modifier;
-- source utility semantics are statically provable;
-- requested value is representable by the bounded output grammar;
-- independent multi-property conflict guard returns safe.
+- source semantics statically provable;
+- requested value representable by bounded output grammar.
 
-Dynamic `clsx`, `cn`, templates, ternaries, joins and other class composition stay Codex-backed.
+Dynamic class composition stays Codex-backed.
 
-M2.3 does **not** assume project Tailwind default theme scales. Named theme-dependent utilities such as `gap-4` remain Codex until configured semantics are actually proved.
+M2.3 does not guess Tailwind theme configuration. Named theme-dependent utilities such as `gap-4` remain Codex until configured semantics are proved.
 
-Bounded arbitrary values such as `gap-[16px] → gap-[24px]` may be direct when source/runtime semantics agree.
+Bounded arbitrary values such as `gap-[16px] → gap-[24px]` may be direct when source/runtime semantics match.
 
-The primary resolver refuses ordinary property-affecting conflicts including:
-- `p-[16px] pt-[8px]` for `paddingTop`;
-- `px-[16px] pl-[8px]` for `paddingLeft`;
-- `my-[16px] mt-[8px]` for `marginTop`;
-- `gap-x-[16px] gap-[8px]` for `gap`;
-- `overflow-x-auto overflow-hidden` for `overflow`.
+Primary v2 conflict analysis handles side/axis/base families such as padding/margin/gap/overflow.
 
-The independent native veto additionally catches multi-property utilities/helpers that a narrow family resolver could miss:
-- `size-*` vs width/height;
-- `container` vs width/maxWidth;
-- `place-items-*` vs alignItems;
-- `place-content-*` vs justifyContent;
-- `sr-only` / `not-sr-only` vs position/size/spacing/overflow;
-- `truncate` vs overflow;
-- `line-clamp-*` vs display/overflow;
-- bounded table/list display helpers vs display.
-
-Variant-prefixed forms still count as conflicts after bounded variant-prefix stripping.
-
-Responsive/state variants are never silently flattened into base utilities.
+The independent guard additionally catches multi-property helpers such as:
+- `size-*`;
+- `container`;
+- `place-items-*`;
+- `place-content-*`;
+- `sr-only` / `not-sr-only`;
+- `truncate`;
+- `line-clamp-*`;
+- extended table/list display utilities.
 
 ### 6.5 JSX inline-style lane
 
@@ -272,21 +260,17 @@ Direct JSX style editing supports an existing static `style={{ ... }}` property 
 Requirements:
 - one literal object;
 - no spread/computed-key ambiguity;
-- requested property appears exactly once;
-- value is a bounded string or supported numeric literal;
-- source semantic value matches observed runtime value.
+- requested property exactly once;
+- bounded string/supported numeric literal;
+- source semantics match observed runtime value.
 
-Dynamic inline style is a hard Codex boundary for the property because it can override stylesheet/class ownership.
+Dynamic inline style is a hard Codex boundary because it can override stylesheet/class ownership.
 
-M2.3 does not generically mutate DOM/component presentation props. Props require an explicit semantic registry before they receive direct authority.
+Generic DOM/component prop mutation is **not** claimed; props require a future semantic registry.
 
-### 6.6 Canonical native engines + ACL
+### 6.6 Native command / ACL boundary
 
-Only `markup_transaction_v2.rs` is compiled as the markup writer. The prototype engine is removed; production contracts reject dual write-authority models.
-
-`markup_conflict_guard.rs` is separately compiled as a read-only veto layer.
-
-Privileged-main commands:
+Privileged `main` only:
 - `project_markup_edit_probe`;
 - `project_markup_conflict_guard`;
 - `project_markup_transaction_preview`;
@@ -294,47 +278,43 @@ Privileged-main commands:
 
 Remote preview receives none of these permissions.
 
-A deterministic transaction plan binds exact path/range/source-before/source-after, lane, owner kind and whole-file fingerprint.
+### 6.7 Hardened production writer
 
-The Tailwind direct product path re-runs exact ownership + the independent conflict guard:
-- before dry-run;
-- again immediately before commit.
+Production `lib.rs` registers `markup_transaction_hardened`, not raw `markup_transaction_v2` commit authority.
 
-Commit independently re-resolves and requires:
-- regular non-symlink target;
-- canonical containment inside project root;
-- exact whole-file fingerprint;
-- exact source range/value;
-- bounded JSX structure still reparses after replacement;
-- same selected literal id/tag remains valid;
-- same-directory create-new temp + flush/fsync + permission preservation + atomic rename;
-- no shell interpolation;
-- no blind regex replacement.
+`markup_transaction_hardened.rs` includes the v2 ownership core internally and exposes the production probe/preview/commit surface.
 
-Guard unavailability and CSS preflight unavailability are fail-closed Codex routes.
+For Tailwind, one native commit call performs:
+1. exact v2 ownership resolution;
+2. independent conflict guard inside native write authority;
+3. target re-read after the guard;
+4. original whole-file fingerprint validation;
+5. exact source-range/value validation;
+6. bounded replacement;
+7. JSX structural reparse + same literal id/tag owner validation;
+8. create-new temp + flush/fsync + permission preservation + atomic rename.
 
-### 6.7 Properties UX
+This removes dependence on a separate frontend guard IPC for write safety. Frontend/main still re-runs ownership/CSS precedence/guard during Properties, before dry-run and before commit for earlier UX refusal; native commit is authoritative.
 
-A proven M2.3 source lane gets a `Source-native` card showing:
-- `Tailwind utility` or `JSX inline style`;
-- exact path:line;
+### 6.8 Properties UX
+
+A proven markup owner gets a `Source-native` card with:
+- `Tailwind utility` or `JSX inline style` lane;
+- exact `path:line`;
 - owner kind;
-- native proof/refusal reason;
+- native reason;
 - source Before/After;
 - **Apply to source**;
 - **Use Codex**.
 
-Dynamic/unsupported ownership surfaces the Codex reason rather than a fake direct option.
+Dynamic/unsupported cases show the Codex reason rather than a fake direct option.
 
-### 6.8 Shared engineering chain
+### 6.9 Shared engineering chain
 
 M2.1 CSS, M2.2 token and M2.3 markup writes all converge on `finishDirectVisualEdit`:
 - source orchestration/race guards;
 - clean exact Timeline provenance;
-- exact markup/conflict proof before dry-run;
-- native dry-run;
-- exact markup/conflict proof again before commit;
-- atomic native commit;
+- native preview + commit;
 - stale Browser Evidence invalidation;
 - one `kind: visual` checkpoint;
 - negative direct-visual generation identity;
@@ -342,83 +322,74 @@ M2.1 CSS, M2.2 token and M2.3 markup writes all converge on `finishDirectVisualE
 - Fresh Review;
 - Ship.
 
-M2.3 adds source-lane/owner-kind metadata but no new history model.
+No markup-specific history exists.
 
-### 6.9 Production regression contract
+### 6.10 Regression contract
 
-`npm run check:native` runs:
-- `check_native_source.mjs`;
-- `check_token_editing.mjs`;
-- `check_markup_editing.mjs`.
+`npm run check:native` runs source + token + markup production contracts.
 
-M2.3 contracts lock:
-- only hardened v2 markup writer compiled;
-- independent conflict guard compiled and main-only;
+M2.3 exact-head contracts lock:
+- hardened wrapper is the production write surface;
+- v2 is internal ownership core only;
+- independent guard compiled/main-only;
+- guard executes inside native Tailwind commit after v2 resolve;
+- post-guard fingerprint/range validation precedes write;
+- hidden `size-*` competitor fails native commit;
+- safe Tailwind write remains functional;
 - lexical JSX false-positive refusal;
-- unique live/source DOM ownership;
-- inline-style cascade safety before CSS-vs-Tailwind precedence;
-- fail-closed CSS preflight;
-- fail-closed conflict-guard availability;
-- theme/config refusal;
-- responsive/state refusal;
-- first-order shorthand/axis refusal;
-- multi-property helper/shorthand veto;
-- guard revalidation before preview and commit;
-- dynamic style/class/spread refusal;
-- stale-source/root/symlink/atomic write boundary;
-- Properties source-native UX;
-- common Timeline/evidence handoff;
-- M2.2 truncated-token safety preservation.
+- inline-style cascade safety;
+- fail-closed CSS-vs-Tailwind precedence;
+- theme/responsive/shorthand/dynamic ownership refusal;
+- M2.2 truncation safety;
+- common Timeline/evidence handoff.
 
-### 6.10 M2.3 Definition of Done
+### 6.11 Definition of Done
 
-Merge only when the final exact head has:
+Merge only when the **final exact head** has:
 - green TypeScript/source contracts;
 - green source/token/markup production contracts;
 - green Node regression suite;
-- green production Vite build;
-- green Rust tests on Intel macOS CI;
-- one canonical hardened markup writer;
-- independent native Tailwind conflict guard;
-- bounded JSX lexical scanner;
+- green Vite production build;
+- green Rust tests / `cargo test --all-targets` on Intel macOS CI;
+- one canonical hardened markup write surface;
+- bounded JSX lexical model;
 - safe static Tailwind lane;
 - safe static JSX inline-style lane;
 - correct cascade/source precedence;
-- multi-property/shorthand/responsive/dynamic conflict refusal;
-- exact proof re-run before preview and commit;
-- native fingerprinted re-resolution + atomic commit;
+- independent multi-property guard;
+- authoritative guarded native commit + post-guard fingerprint validation;
 - main-webview-only markup/guard commands;
 - shared Timeline/evidence/Fresh Review/Ship handoff;
 - Codex fallback for every dynamic/ambiguous/unsupported case;
-- no hidden preview-only source of truth.
+- no hidden preview-only source of truth;
+- master + deep spec aligned.
 
 ## 7. Visual Editor edit classes
 
-### A. Deterministic
-Ownership, cascade and material scope are proven.
+### Deterministic
+Ownership, cascade and material scope are proved.
 
 Examples:
 - literal CSS declaration (M2.1);
 - unique token-backed instance detach (M2.2);
-- explicitly chosen local/global token definition (M2.2);
-- proven static Tailwind arbitrary/known-semantic utility with conflict guard (M2.3);
-- proven static JSX inline-style literal (M2.3).
+- chosen local/global token definition (M2.2);
+- static Tailwind utility with primary + independent conflict proof (M2.3);
+- static JSX inline-style literal (M2.3).
 
-### B. Assisted deterministic
-Ownership is proven but one bounded material choice remains.
+### Assisted deterministic
+Ownership is proved but one bounded material choice remains.
 
 Examples:
 - token scope choice;
 - future breakpoint scope;
 - future component prop/variant scope.
 
-### C. Codex
+### Codex
 Reasoning/structure/ownership/cascade/scope remains ambiguous or unsupported.
 
 Examples:
 - dynamic JSX/class/style composition;
-- theme-dependent Tailwind semantics not statically proven;
-- hidden multi-property Tailwind competitors;
+- theme-dependent Tailwind semantics not statically proved;
 - responsive/state authoring;
 - custom-component abstractions;
 - component props without semantic registry;
@@ -440,7 +411,7 @@ Priority after a green M2.3:
 8. asset replacement;
 9. only then consider proven multi-file atomic transactions.
 
-## 9. Reliability / distribution after the core editor
+## 9. Reliability / distribution after core editor
 
 Reliability:
 - exact workspace restoration;
@@ -460,7 +431,7 @@ Distribution:
 - accessibility/keyboard audit;
 - polished onboarding/empty/error states.
 
-## 10. Explicit non-goals until the core loop is excellent
+## 10. Explicit non-goals until core loop is excellent
 
 - VS Code extension marketplace compatibility;
 - generic multi-agent product surface;
