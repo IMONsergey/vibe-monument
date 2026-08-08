@@ -31,6 +31,12 @@ type ItemContext = { type?: string; command?: string; cwd?: string; changedPaths
 
 const SIMPLE_DECISIONS = new Set<SimpleApprovalDecision>(['accept', 'acceptForSession', 'decline', 'cancel']);
 const TIMELINE_RESTORED_EVENT = 'monument:timeline-restored';
+let latestRuntimeSnapshot: RuntimeSnapshot | null = null;
+
+/** Read-only product coordination view. This never creates or controls a second Codex runtime. */
+export function getCodexRuntimeSnapshot(): RuntimeSnapshot | null {
+  return latestRuntimeSnapshot;
+}
 
 function nowId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -559,6 +565,7 @@ export class CodexRuntime {
 
   private patch(patch: Partial<RuntimeSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
+    latestRuntimeSnapshot = this.snapshot;
     for (const listener of this.listeners) listener(this.snapshot);
   }
 }
