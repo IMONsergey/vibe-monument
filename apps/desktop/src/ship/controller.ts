@@ -1,5 +1,9 @@
 import { browserEvidenceHasIssues, type BrowserEvidenceRecord } from '../browser/evidence';
-import { hasPendingSourceTransaction } from '../editor/transactionState';
+import {
+  hasPendingSourceTransaction,
+  hasUnacknowledgedSourceTransaction,
+  isSourceTransactionValidationBusy,
+} from '../editor/transactionState';
 import type { FreshReviewRecord } from '../review/controller';
 import { unresolvedFindings } from '../review/controller';
 import type { PromptQueueState } from '../queue/controller';
@@ -51,7 +55,10 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
   const items: ShipGateItem[] = [];
   const current = input.timeline?.checkpoints.find((checkpoint) => checkpoint.id === input.timeline?.currentCheckpointId) ?? null;
   const turnSerial = current?.turnSerial ?? null;
-  const directSourcePending = hasPendingSourceTransaction(input.project?.id);
+  const projectId = input.project?.id ?? null;
+  const directSourcePending = hasPendingSourceTransaction(projectId)
+    || hasUnacknowledgedSourceTransaction(projectId)
+    || isSourceTransactionValidationBusy(projectId);
 
   if (!input.project) {
     items.push(item('project', 'Project', 'block', 'Open a project before shipping.'));
@@ -60,7 +67,7 @@ export function evaluateShipGate(input: ShipGateInput): ShipGateResult {
   }
 
   if (directSourcePending) {
-    items.push(item('version', 'Saved version', 'block', 'A direct visual source transaction has not been checkpointed yet. Resolve the Timeline error before review/ship.'));
+    items.push(item('version', 'Saved version', 'block', 'A direct visual source transaction is still being checkpointed or verified. Ship stays closed until the exact Timeline generation is current.'));
   } else if (!input.timeline || !current) {
     items.push(item('version', 'Saved version', 'block', 'Version Timeline is not ready.'));
   } else if (input.timeline.dirty) {
