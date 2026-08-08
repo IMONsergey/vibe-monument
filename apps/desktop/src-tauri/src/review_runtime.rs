@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -55,12 +55,9 @@ pub struct ReviewRunOutput {
 fn canonical_project(project_path: &str) -> Result<PathBuf, String> {
     let root = PathBuf::from(project_path)
         .canonicalize()
-        .map_err(|error| format!("Cannot open fresh-review project: {error}"))?;
+        .map_err(|error| format!("Cannot validate Fresh Review project: {error}"))?;
     if !root.is_dir() {
-        return Err("Fresh-review project root is not a directory".into());
-    }
-    if !root.join(".git").exists() {
-        return Err("Fresh review requires a Git repository".into());
+        return Err("Fresh Review project root is not a directory".into());
     }
     Ok(root)
 }
@@ -151,7 +148,7 @@ fn terminate_process_group(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
-fn output_file(path: &Path) -> Result<ReviewModelOutput, String> {
+fn output_file(path: &std::path::Path) -> Result<ReviewModelOutput, String> {
     let metadata = fs::metadata(path).map_err(|error| format!("Fresh Review produced no final output: {error}"))?;
     if metadata.len() > MAX_REVIEW_OUTPUT_BYTES {
         return Err("Fresh Review output exceeded the 256 KiB structured-output limit".into());
@@ -165,7 +162,9 @@ fn run_review(app: AppHandle, input: ReviewRunInput) -> Result<ReviewRunOutput, 
     if input.prompt.as_bytes().len() > MAX_REVIEW_PROMPT_BYTES {
         return Err("Fresh Review packet exceeded the 640 KiB input boundary".into());
     }
-    let project_root = canonical_project(&input.project_path)?;
+    // Validate the user-supplied project path, but never execute the reviewer from inside it.
+    // This prevents repository AGENTS.md/config/tooling from becoming reviewer authority.
+    let _project_root = canonical_project(&input.project_path)?;
     let codex = resolve_codex_command()?;
     let cache = app
         .path()
@@ -174,23 +173,32 @@ fn run_review(app: AppHandle, input: ReviewRunInput) -> Result<ReviewRunOutput, 
         .join("fresh-review");
     fs::create_dir_all(&cache).map_err(|error| error.to_string())?;
     let id = REVIEW_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let schema_path = cache.join("review-output-schema.json");
-    let output_path = cache.join(format!("review-output-{}-{id}.json", std::process::id()));
+    let run_dir = cache.join(format!("run-{}-{id}", std::process::id()));
+    fs::create_dir_all(&run_dir).map_err(|error| error.to_string())?;
+    let schema_path = run_dir.join("output-schema.json");
+    let output_path = run_dir.join("output.json");
     fs::write(
         &schema_path,
         serde_json::to_vec_pretty(&review_schema()).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    let _ = fs::remove_file(&output_path);
 
     let mut command = Command::new(&codex);
     command
-        .args(["exec", "--ephemeral", "--sandbox", "read-only", "--ignore-user-config", "--output-schema"])
+        .args([
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--ignore-user-config",
+            "--output-schema",
+        ])
         .arg(&schema_path)
         .arg("--output-last-message")
         .arg(&output_path)
         .arg("-")
-        .current_dir(&project_root)
+        .current_dir(&run_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -222,14 +230,14 @@ fn run_review(app: AppHandle, input: ReviewRunInput) -> Result<ReviewRunOutput, 
         None => {
             terminate_process_group(&mut child);
             let _ = stderr_reader.join();
-            let _ = fs::remove_file(&output_path);
+            let _ = fs::remove_dir_all(&run_dir);
             return Err("Fresh Review timed out after 4 minutes".into());
         }
     };
     let stderr = stderr_reader.join().unwrap_or_default();
     let stderr_text = String::from_utf8_lossy(&stderr).to_string();
     if !status.success() {
-        let _ = fs::remove_file(&output_path);
+        let _ = fs::remove_dir_all(&run_dir);
         return Err(if stderr_text.trim().is_empty() {
             format!("Fresh Review exited with {status}")
         } else {
@@ -238,7 +246,7 @@ fn run_review(app: AppHandle, input: ReviewRunInput) -> Result<ReviewRunOutput, 
     }
 
     let result = output_file(&output_path)?;
-    let _ = fs::remove_file(&output_path);
+    let _ = fs::remove_dir_all(&run_dir);
     Ok(ReviewRunOutput {
         result,
         duration_ms: started.elapsed().as_millis(),
