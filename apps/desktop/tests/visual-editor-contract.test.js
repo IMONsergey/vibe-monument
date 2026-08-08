@@ -8,6 +8,7 @@ const previewCapability = JSON.parse(await readFile(new URL('../src-tauri/capabi
 const bridge = await readFile(new URL('../src-tauri/src/preview_editor_bridge.rs', import.meta.url), 'utf8');
 const script = await readFile(new URL('../src-tauri/src/preview_editor_script.rs', import.meta.url), 'utf8');
 const previewRuntime = await readFile(new URL('../src-tauri/src/preview_runtime.rs', import.meta.url), 'utf8');
+const nativePreview = await readFile(new URL('../src/preview/NativePreview.tsx', import.meta.url), 'utf8');
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const editorController = await readFile(new URL('../src/editor/controller.ts', import.meta.url), 'utf8');
 const layers = await readFile(new URL('../src/editor/LayersPanel.tsx', import.meta.url), 'utf8');
@@ -62,6 +63,16 @@ test('Layers are a bounded runtime projection and do not become a hidden documen
   assert.ok(!script.includes('data-monument-node-id'));
   assert.ok(previewRuntime.includes('PREVIEW_EDITOR_SCRIPT'));
   assert.ok(!previewRuntime.includes('dangerousRemoteDomainIpcAccess'));
+});
+
+test('editor readiness follows the current native preview lifecycle and failed activation rolls back', () => {
+  assert.ok(editorController.includes('export function resetVisualEditorPreview'));
+  assert.ok(editorController.includes('ready: false'));
+  assert.ok(editorController.includes('const previous = state.active'));
+  assert.ok(editorController.includes('publish({ active: previous })'));
+  assert.ok(nativePreview.includes("import { resetVisualEditorPreview } from '../editor/controller'"));
+  assert.ok(nativePreview.includes('resetVisualEditorPreview();'));
+  assert.ok(nativePreview.includes('setPreviewSelection(null);'));
 });
 
 test('product UI exposes real bidirectional Layers and source-native Properties', () => {
