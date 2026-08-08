@@ -59,7 +59,7 @@ The current interface exposes three overlapping product shells and makes interna
 - [x] At 390×844, panels become bounded sheets and the primary canvas/composer path remains usable.
 - [x] The official package is pinned to the audited version; preview type/contract/build checks pass in a path-scoped GitHub Actions job.
 - [x] `apps/desktop/src/main.tsx` and production runtime files are unchanged by this module.
-- [ ] A draft PR targets `monument/alpha-preview-intel`; no production migration is presented as complete.
+- [x] Draft PR #48 targets `monument/alpha-preview-intel`; no production migration is presented as complete.
 
 ## States / edge cases
 
