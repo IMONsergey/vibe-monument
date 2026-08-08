@@ -1,4 +1,4 @@
-export type TimelineCheckpointKind = 'baseline' | 'prompt' | 'manual' | 'restore-safety' | 'external';
+export type TimelineCheckpointKind = 'baseline' | 'prompt' | 'visual' | 'manual' | 'restore-safety' | 'external';
 
 export interface TimelineCheckpoint {
   id: string;
