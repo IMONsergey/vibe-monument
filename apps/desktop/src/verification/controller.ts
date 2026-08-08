@@ -1,6 +1,6 @@
 import { invokeNative, stateGet, stateSet } from '../host/native';
 import { requestAutoRepairIfEnabled } from '../repair/controller';
-import { currentTimelineTurnSerial } from '../timeline/controller';
+import { currentTimelineCheckpoint, currentTimelineTurnSerial } from '../timeline/controller';
 import { recordTimelineDeterministicQuality, type TimelineDeterministicStatus } from '../timeline/quality';
 
 export interface VerificationPlanItem {
@@ -26,6 +26,7 @@ export interface VerificationEvidence {
   id: string;
   projectId: string;
   projectRoot: string;
+  checkpointId: string | null;
   turnSerial: number;
   trigger: 'codex-turn' | 'manual';
   status: 'running' | 'passed' | 'failed' | 'no-checks' | 'error';
@@ -65,12 +66,14 @@ function newEvidence(
   projectRoot: string,
   trigger: VerificationEvidence['trigger'],
   plan: VerificationPlanItem[],
+  checkpointId: string | null,
   turnSerial: number,
 ): VerificationEvidence {
   return {
     id: `evidence-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     projectId,
     projectRoot,
+    checkpointId,
     turnSerial,
     trigger,
     status: plan.some((item) => item.automatic) || trigger === 'manual' ? 'running' : 'no-checks',
@@ -136,22 +139,26 @@ export async function runVerification({
   projectRoot,
   trigger,
   includeManual = false,
+  checkpointId = null,
   turnSerial = 0,
 }: {
   projectId: string;
   projectRoot: string;
   trigger: VerificationEvidence['trigger'];
   includeManual?: boolean;
+  checkpointId?: string | null;
   turnSerial?: number;
 }): Promise<VerificationEvidence> {
+  const currentCheckpoint = await currentTimelineCheckpoint(projectId).catch(() => null);
+  const resolvedCheckpointId = checkpointId ?? currentCheckpoint?.id ?? null;
   const resolvedTurnSerial = trigger === 'manual'
-    ? (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial)) ?? 0
+    ? currentCheckpoint?.turnSerial ?? (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial)) ?? 0
     : turnSerial;
   let plan: VerificationPlanItem[] = [];
   try {
     plan = await loadVerificationPlan(projectRoot);
   } catch (error) {
-    const evidence = newEvidence(projectId, projectRoot, trigger, [], resolvedTurnSerial);
+    const evidence = newEvidence(projectId, projectRoot, trigger, [], resolvedCheckpointId, resolvedTurnSerial);
     evidence.status = 'error';
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
@@ -160,7 +167,7 @@ export async function runVerification({
     return evidence;
   }
 
-  const evidence = newEvidence(projectId, projectRoot, trigger, plan, resolvedTurnSerial);
+  const evidence = newEvidence(projectId, projectRoot, trigger, plan, resolvedCheckpointId, resolvedTurnSerial);
   const selected = plan.filter((item) => includeManual || item.automatic).slice(0, 5);
   if (!selected.length) {
     evidence.status = 'no-checks';
