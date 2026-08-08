@@ -7,7 +7,7 @@
     "prepare:icon": "node scripts/prepare_app_icon.mjs",
     "dev": "npm run prepare:icon && vite --host 127.0.0.1 --port 4173",
     "check": "tsc --noEmit && npm run check:native",
-    "check:native": "node scripts/check_native_source.mjs && node scripts/check_token_editing.mjs && node scripts/check_markup_editing.mjs && node scripts/check_content_editing.mjs",
+    "check:native": "node scripts/check_native_source.mjs && node scripts/check_token_editing.mjs && node scripts/check_markup_editing.mjs && node scripts/check_content_editing.mjs && node scripts/check_alpha_preview.mjs",
     "test": "node --test tests/*.test.js",
     "build": "npm run prepare:icon && tsc --noEmit && vite build"
   },
