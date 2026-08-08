@@ -36,6 +36,8 @@ export interface EditorTreeSnapshot {
 
 export interface EditorSelection extends PreviewSelection {
   nodeId: string;
+  directText: string;
+  directTextTruncated: boolean;
 }
 
 export type EditorBridgeMessage =
