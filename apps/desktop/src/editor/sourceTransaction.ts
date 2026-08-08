@@ -1,3 +1,4 @@
+import { getVisualEditorState } from './controller';
 import type { VisualPropertyChange } from './intent';
 import type { EditorSelection } from './types';
 
@@ -99,6 +100,9 @@ export async function planVisualSourceEdit(
   changes: VisualPropertyChange[],
 ): Promise<VisualSourcePlanDecision> {
   if (!coordinator) return { kind: 'fallback', reason: 'Direct source editing is not ready in this workspace.' };
+  if (!selection.id || selection.idUnique !== true) {
+    return { kind: 'fallback', reason: 'Direct CSS v1 requires a DOM id that is proven unique in the current preview.' };
+  }
   const decision = await coordinator.plan(selection, changes);
   if (decision.kind === 'deterministic' && selectorNeedsDeeperParsing(decision.prepared.plan.selector)) {
     return { kind: 'fallback', reason: 'Attribute-selector ownership needs deeper source parsing, so Monument will use Codex for this edit.' };
@@ -110,6 +114,15 @@ export async function commitVisualSourceEdit(prepared: PreparedVisualSourceEdit)
   if (!coordinator) throw new Error('Direct source editing is no longer available. Re-plan the edit.');
   if (selectorNeedsDeeperParsing(prepared.plan.selector)) {
     throw new Error('This source selector is no longer eligible for deterministic editing. Re-plan with Codex.');
+  }
+  const liveSelection = getVisualEditorState().selection;
+  if (
+    !liveSelection
+    || liveSelection.nodeId !== prepared.selectionNodeId
+    || liveSelection.id !== prepared.request.elementId
+    || liveSelection.idUnique !== true
+  ) {
+    throw new Error('The selected element or DOM id scope changed after the dry-run. Re-plan before applying source.');
   }
   return coordinator.commit(prepared);
 }
