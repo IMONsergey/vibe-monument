@@ -1,5 +1,6 @@
 mod browser_evidence;
 mod codex_runtime;
+mod content_transaction;
 mod git_ship;
 mod jsx_source;
 mod markup_conflict_guard;
@@ -27,6 +28,7 @@ mod verification_runtime;
 mod timeline_git_contract_tests;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
+use content_transaction::{project_content_edit_probe, project_content_transaction_commit, project_content_transaction_preview};
 use git_ship::{git_ship_commit, git_ship_plan};
 use markup_conflict_guard::project_markup_conflict_guard;
 use markup_transaction_hardened::{project_markup_edit_probe, project_markup_transaction_commit, project_markup_transaction_preview};
@@ -75,6 +77,9 @@ pub fn run() {
             project_markup_conflict_guard,
             project_markup_transaction_preview,
             project_markup_transaction_commit,
+            project_content_edit_probe,
+            project_content_transaction_preview,
+            project_content_transaction_commit,
             runtime_start,
             runtime_status,
             runtime_stop,
