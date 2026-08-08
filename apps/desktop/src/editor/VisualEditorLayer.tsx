@@ -93,7 +93,8 @@ export function VisualEditorLayer() {
             : result.scope === 'local-token'
               ? 'local token'
               : 'selected element';
-          setApplyMessage(`Applied directly · ${scope} · ${result.token} · ${result.affectedUsageCount} affected · ${result.sourcePath}`);
+          const refs = result.affectedUsageCount === 1 ? '1 source ref' : `${result.affectedUsageCount} source refs`;
+          setApplyMessage(`Applied directly · ${scope} · ${result.token} · ${refs} observed · ${result.sourcePath}`);
         } else {
           setApplyMessage(`Applied directly · ${result.appliedCount} source change${result.appliedCount === 1 ? '' : 's'} · ${result.sourcePath}`);
         }
