@@ -18,6 +18,14 @@ import {
   subscribeBrowserEvidence,
   type BrowserEvidenceRecord,
 } from './browser/evidence';
+import type { VisualPropertyChange } from './editor/intent';
+import {
+  registerVisualSourceCoordinator,
+  type PreparedVisualSourceEdit,
+  type VisualSourceApplyResult,
+  type VisualSourcePlanResponse,
+} from './editor/sourceTransaction';
+import type { EditorSelection } from './editor/types';
 import {
   codexStatus,
   inspectProject,
@@ -179,7 +187,7 @@ export function App() {
   const [timelineDiff, setTimelineDiff] = useState<TimelineDiff | null>(null);
   const [promptQueueState, setPromptQueueState] = useState<PromptQueueState | null>(null);
   const [queueDispatching, setQueueDispatching] = useState(false);
-  const [queueFailureOverride, setQueueFailureOverride] = useState<number | null>(null);
+  const [queueFailureOverride, setQueueFailureOverride] = useState<string | null>(null);
   const [freshReview, setFreshReview] = useState<FreshReviewRecord | null>(null);
   const [freshReviewRunning, setFreshReviewRunning] = useState(false);
   const [shipOpen, setShipOpen] = useState(false);
@@ -465,6 +473,128 @@ export function App() {
     && !postTurnPending,
   );
 
+  const planDirectVisualSource = useCallback(async (
+    editorSelection: EditorSelection,
+    changes: VisualPropertyChange[],
+  ) => {
+    if (!project) return { kind: 'fallback' as const, reason: 'Open a project before editing source.' };
+    if (changes.length !== 1) return { kind: 'fallback' as const, reason: 'direct v1 only handles one property at a time' };
+    const change = changes[0];
+    if (change.property === 'textContent') return { kind: 'fallback' as const, reason: 'text remains source-aware through Codex' };
+    if (!editorSelection.id) return { kind: 'fallback' as const, reason: 'the element has no stable id-owned scope' };
+    if (!canExecutePromptNow || queueDispatching || !promptQueueState || promptQueueState.items.length > 0) {
+      return { kind: 'fallback' as const, reason: 'workspace or prompt queue is already active' };
+    }
+
+    const freshTimeline = await prepareTimeline(project);
+    setTimelineState(freshTimeline);
+    const baseCheckpoint = freshTimeline.checkpoints.find((checkpoint) => checkpoint.id === freshTimeline.currentCheckpointId) ?? null;
+    if (freshTimeline.dirty || !baseCheckpoint) {
+      return { kind: 'fallback' as const, reason: 'working source is not an exact saved checkpoint' };
+    }
+
+    const request = {
+      projectPath: project.rootPath,
+      elementId: editorSelection.id,
+      property: change.property,
+      before: change.before,
+      after: change.after,
+    };
+    const response = await invokeNative<VisualSourcePlanResponse>('visual_source_plan', { input: request });
+    if (response.status !== 'deterministic' || !response.plan) {
+      return { kind: 'fallback' as const, reason: response.reason || 'deterministic source ownership was not proven' };
+    }
+
+    return {
+      kind: 'deterministic' as const,
+      prepared: {
+        projectId: project.id,
+        projectRoot: project.rootPath,
+        baseCheckpointId: baseCheckpoint.id,
+        selectionNodeId: editorSelection.nodeId,
+        change,
+        request,
+        plan: response.plan,
+      },
+    };
+  }, [canExecutePromptNow, project, promptQueueState, queueDispatching]);
+
+  const commitDirectVisualSource = useCallback(async (prepared: PreparedVisualSourceEdit) => {
+    if (!project || project.id !== prepared.projectId || project.rootPath !== prepared.projectRoot) {
+      throw new Error('Project changed after dry-run. Re-plan the edit.');
+    }
+    if (!canExecutePromptNow || queueDispatching || !promptQueueState || promptQueueState.items.length > 0) {
+      throw new Error('Workspace changed after dry-run. Re-plan when Codex and the prompt queue are idle.');
+    }
+
+    setTimelineBusy(true);
+    setVerificationBusy(true);
+    setShipOpen(false);
+    setNotice(null);
+    try {
+      const freshTimeline = await prepareTimeline(project);
+      setTimelineState(freshTimeline);
+      const currentCheckpoint = freshTimeline.checkpoints.find((checkpoint) => checkpoint.id === freshTimeline.currentCheckpointId) ?? null;
+      if (freshTimeline.dirty || !currentCheckpoint || currentCheckpoint.id !== prepared.baseCheckpointId) {
+        throw new Error('Source checkpoint changed after dry-run. Re-plan before applying.');
+      }
+
+      const result = await invokeNative<VisualSourceApplyResult>('visual_source_apply', {
+        input: {
+          request: prepared.request,
+          expectedSourcePath: prepared.plan.sourcePath,
+          expectedFileFingerprint: prepared.plan.fileFingerprint,
+          expectedValueStart: prepared.plan.valueStart,
+          expectedValueEnd: prepared.plan.valueEnd,
+        },
+      });
+
+      await markBrowserEvidenceStale(project.id).catch(() => undefined);
+      if (runtimeUrl) await clearBrowserEvidenceBuffer().catch(() => undefined);
+      setQueueFailureOverride(null);
+
+      const checkpoint = await saveTimelineVersion(project, `Visual edit · ${prepared.change.property}`);
+      if (timelineProjectId.current === project.id) await refreshTimeline(project);
+      await refreshProjectSnapshot(project.rootPath, project.id);
+
+      const evidence = await runVerification({
+        projectId: project.id,
+        projectRoot: project.rootPath,
+        trigger: 'source-transaction',
+        checkpointId: checkpoint.id,
+        turnSerial: 0,
+      });
+
+      if (runtimeUrl && evidence.status !== 'failed' && evidence.status !== 'error') {
+        await new Promise((resolve) => window.setTimeout(resolve, 650));
+        setBrowserEvidenceBusy(true);
+        try {
+          await captureBrowserEvidence(project.id, 0, checkpoint.id);
+        } catch {
+          // Deterministic evidence remains bound to the checkpoint even if browser capture is unavailable.
+        } finally {
+          setBrowserEvidenceBusy(false);
+        }
+      }
+
+      setNotice(`Direct source edit saved · ${result.sourcePath}:${result.line}`);
+      return {
+        checkpointId: checkpoint.id,
+        sourcePath: result.sourcePath,
+        cssProperty: result.cssProperty,
+        line: result.line,
+      };
+    } finally {
+      setVerificationBusy(false);
+      setTimelineBusy(false);
+    }
+  }, [canExecutePromptNow, project, promptQueueState, queueDispatching, refreshProjectSnapshot, refreshTimeline, runtimeUrl]);
+
+  useEffect(() => registerVisualSourceCoordinator({
+    plan: planDirectVisualSource,
+    commit: commitDirectVisualSource,
+  }), [commitDirectVisualSource, planDirectVisualSource]);
+
   const executePrompt = useCallback(async (
     text: string,
     capturedSelection: PreviewSelection | null,
@@ -747,20 +877,18 @@ export function App() {
   }, [freshReviewRunning, goTimelineBack, goTimelineForward, project, sending, timelineBusy, verificationBusy, workspace.codexState]);
 
   const currentTimelineCheckpoint = timelineState?.checkpoints.find((checkpoint) => checkpoint.id === timelineState.currentCheckpointId) ?? null;
-  const currentCodeTurnSerial = timelineState
-    ? (timelineState.dirty ? null : currentTimelineCheckpoint?.turnSerial ?? null)
-    : workspace.turnSerial;
+  const currentCheckpointId = timelineState && !timelineState.dirty ? currentTimelineCheckpoint?.id ?? null : null;
   const deterministicEvidenceStale = Boolean(verificationProgress && (
-    currentCodeTurnSerial == null
-    || verificationProgress.evidence.turnSerial !== currentCodeTurnSerial
+    currentCheckpointId == null
+    || verificationProgress.evidence.checkpointId !== currentCheckpointId
     || timelineBusy
     || workspace.codexState === 'busy'
     || workspace.codexState === 'approval'
   ));
   const browserEvidenceStale = Boolean(browserEvidence && (
     browserEvidence.stale
-    || currentCodeTurnSerial == null
-    || browserEvidence.capturedForTurnSerial !== currentCodeTurnSerial
+    || currentCheckpointId == null
+    || browserEvidence.capturedForCheckpointId !== currentCheckpointId
     || timelineBusy
     || workspace.codexState === 'busy'
     || workspace.codexState === 'approval'
@@ -776,7 +904,7 @@ export function App() {
     && (verificationProgress.evidence.status === 'failed' || verificationProgress.evidence.status === 'error'),
   );
   const browserQueueBlock = Boolean(browserEvidence && !browserEvidenceStale && browserEvidenceHasIssues(browserEvidence));
-  const queueFailureBypassed = currentCodeTurnSerial != null && queueFailureOverride === currentCodeTurnSerial;
+  const queueFailureBypassed = currentCheckpointId != null && queueFailureOverride === currentCheckpointId;
   const queueBlockedByEvidence = (deterministicQueueBlock || browserQueueBlock) && !queueFailureBypassed;
   const promptWillQueue = Boolean(
     project
@@ -817,7 +945,7 @@ export function App() {
 
   useEffect(() => {
     setQueueFailureOverride(null);
-  }, [currentCodeTurnSerial]);
+  }, [currentCheckpointId]);
 
   useEffect(() => {
     if (!project || !promptQueueState?.items.length || promptQueueState.paused || queueDispatching) return;
@@ -852,10 +980,10 @@ export function App() {
   }, [project, promptQueueState]);
 
   const continueQueueAnyway = useCallback(() => {
-    if (!project || currentCodeTurnSerial == null) return;
-    setQueueFailureOverride(currentCodeTurnSerial);
+    if (!project || currentCheckpointId == null) return;
+    setQueueFailureOverride(currentCheckpointId);
     void setPromptQueuePaused(project.id, false);
-  }, [currentCodeTurnSerial, project]);
+  }, [currentCheckpointId, project]);
 
   const moveQueueItem = useCallback((itemId: string, direction: -1 | 1) => {
     if (!project) return;
