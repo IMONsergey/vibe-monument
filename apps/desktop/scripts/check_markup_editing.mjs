@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const jsxSource = await readFile(join(root, 'src-tauri/src/jsx_source.rs'), 'utf8');
 const markup = await readFile(join(root, 'src-tauri/src/markup_transaction_v2.rs'), 'utf8');
+const guard = await readFile(join(root, 'src-tauri/src/markup_conflict_guard.rs'), 'utf8');
 const tauriLib = await readFile(join(root, 'src-tauri/src/lib.rs'), 'utf8');
 const tauriBuild = await readFile(join(root, 'src-tauri/build.rs'), 'utf8');
 const capability = JSON.parse(await readFile(join(root, 'src-tauri/capabilities/main-capability.json'), 'utf8'));
@@ -15,6 +16,7 @@ const styles = await readFile(join(root, 'src/styles/visual-editor-editing.css')
 
 for (const command of [
   'project_markup_edit_probe',
+  'project_markup_conflict_guard',
   'project_markup_transaction_preview',
   'project_markup_transaction_commit',
 ]) {
@@ -24,10 +26,13 @@ for (const command of [
   if (!capability.permissions?.includes(permission)) throw new Error(`Trusted main capability missing ${permission}`);
 }
 if (JSON.stringify(capability.webviews) !== JSON.stringify(['main'])) {
-  throw new Error('Markup source-write permissions must remain scoped to the trusted main webview');
+  throw new Error('Markup source-write/guard permissions must remain scoped to the trusted main webview');
 }
 if (!tauriLib.includes('mod markup_transaction_v2;') || tauriLib.includes('mod markup_transaction;')) {
   throw new Error('Only the hardened markup transaction engine may be compiled');
+}
+if (!tauriLib.includes('mod markup_conflict_guard;')) {
+  throw new Error('Independent Tailwind conflict guard must remain compiled');
 }
 
 for (const token of [
@@ -56,19 +61,44 @@ if (markup.includes('sh -c') || markup.includes('bash -c') || markup.includes('R
 }
 
 for (const token of [
+  'MAX_GUARD_FILES', 'MAX_TOTAL_BYTES', 'multi_property_conflict',
+  'size-', 'place-items-', 'place-content-', 'sr-only', 'not-sr-only', 'truncate', 'line-clamp-',
+  'table-caption', 'list-item', 'container',
+  'size_utility_conflicts_with_width_and_height_owner',
+  'place_shorthands_conflict_with_alignment_owner',
+  'accessibility_and_text_helpers_conflict_with_multiple_properties',
+  'full_display_family_is_counted_as_competing_ownership',
+]) {
+  if (!guard.includes(token)) throw new Error(`Independent Tailwind conflict guard missing ${token}`);
+}
+if (guard.includes('sh -c') || guard.includes('bash -c') || guard.includes('Regex')) {
+  throw new Error('Tailwind conflict guard must remain bounded and parser-based');
+}
+
+for (const token of [
   'nativeMarkupProbe', 'inlineStyleBlocksStylesheetFallback',
   "markup.operation?.lane === 'jsx-style'", "'project_source_transaction_preview'",
   'competingCssOwnership', "cssPlan.mode !== 'codex'",
+  'nativeTailwindConflictGuard', "'project_markup_conflict_guard'",
+  'validateTailwindDirectLane', 'exactDirectProbe',
   "'project_markup_edit_probe'", "'project_markup_transaction_preview'", "'project_markup_transaction_commit'",
   'idUnique: selection.idUnique === true',
 ]) {
   if (!client.includes(token)) throw new Error(`Markup client ownership contract missing ${token}`);
 }
-const markupProbe = client.indexOf('const markup = await nativeMarkupProbe');
-const inlineBlocker = client.indexOf('inlineStyleBlocksStylesheetFallback(markup)');
-const cssProbe = client.indexOf('const cssPlan = await competingCssOwnership');
-if (!(markupProbe >= 0 && inlineBlocker > markupProbe && cssProbe > inlineBlocker)) {
-  throw new Error('Markup routing must establish inline-style cascade safety before CSS-vs-Tailwind precedence');
+if (!client.includes('CSS ownership preflight unavailable:')) {
+  throw new Error('Unknown CSS ownership must fail closed before Tailwind direct editing');
+}
+if (!client.includes('Tailwind conflict guard unavailable:')) {
+  throw new Error('Unavailable Tailwind conflict guard must fail closed');
+}
+const previewGuard = client.indexOf('export async function previewVisualMarkupTransaction');
+const commitGuard = client.indexOf('export async function commitVisualMarkupTransaction');
+if (!(previewGuard >= 0 && client.indexOf('const exact = await exactDirectProbe', previewGuard) > previewGuard)) {
+  throw new Error('Markup dry-run must re-run exact ownership + conflict proof');
+}
+if (!(commitGuard >= 0 && client.indexOf('const exact = await exactDirectProbe', commitGuard) > commitGuard)) {
+  throw new Error('Markup commit path must re-run exact ownership + conflict proof');
 }
 
 for (const token of [
