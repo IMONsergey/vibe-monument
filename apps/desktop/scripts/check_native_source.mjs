@@ -14,6 +14,7 @@ const project = await readFile(join(root, 'src-tauri/src/project_runtime.rs'), '
 const processRuntime = await readFile(join(root, 'src-tauri/src/process_runtime.rs'), 'utf8');
 const previewRuntime = await readFile(join(root, 'src-tauri/src/preview_runtime.rs'), 'utf8');
 const sourceLocator = await readFile(join(root, 'src-tauri/src/source_locator.rs'), 'utf8');
+const sourceTransaction = await readFile(join(root, 'src-tauri/src/source_transaction.rs'), 'utf8');
 const timelineRuntime = await readFile(join(root, 'src-tauri/src/timeline_runtime.rs'), 'utf8');
 const timelineCursor = await readFile(join(root, 'src-tauri/src/timeline_cursor.rs'), 'utf8');
 const reviewRuntime = await readFile(join(root, 'src-tauri/src/review_runtime_v2.rs'), 'utf8');
@@ -42,6 +43,9 @@ if (conf.app?.withGlobalTauri !== true) throw new Error('Tauri global API must r
 if (conf.build?.frontendDist !== '../dist') throw new Error('Tauri frontendDist drifted from the Vite build output');
 if (conf.app?.windows?.[0]?.titleBarStyle !== 'Overlay') throw new Error('macOS title bar contract drifted');
 if (!capability.permissions?.includes('core:default')) throw new Error('main capability must permit core event/listen APIs');
+for (const permission of ['allow-project-source-transaction-preview', 'allow-project-source-transaction-commit']) {
+  if (!capability.permissions?.includes(permission)) throw new Error(`main capability missing ${permission}`);
+}
 if (!cargo.includes('features = ["unstable"]')) throw new Error('Native child preview currently requires the explicit Tauri unstable feature');
 
 const cargoVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
@@ -69,6 +73,14 @@ if (previewRuntime.includes('dangerousRemoteDomainIpcAccess')) throw new Error('
 for (const token of ['project_source_hints', 'MAX_FILES', 'MAX_FILE_BYTES', 'tsx', 'vue', 'svelte', 'score_line']) {
   if (!sourceLocator.includes(token)) throw new Error(`Selected-element source locator missing ${token}`);
 }
+for (const token of [
+  'project_source_transaction_preview', 'project_source_transaction_commit', 'MAX_CSS_FILES', 'MAX_TOTAL_BYTES',
+  'SourceTransactionMode::Deterministic', 'SourceTransactionMode::Assisted', 'literal-css-declaration',
+  'fs::symlink_metadata', 'canonical.starts_with(&root)', '.create_new(true)', 'file.sync_all()', 'fs::rename(&temp, path)',
+  'Source changed after transaction resolution',
+]) {
+  if (!sourceTransaction.includes(token)) throw new Error(`Deterministic source transaction missing ${token}`);
+}
 for (const token of ['monument.sqlite', 'CREATE TABLE IF NOT EXISTS app_state', 'state_get', 'state_set']) {
   if (!persistence.includes(token)) throw new Error(`Persistence runtime missing ${token}`);
 }
@@ -85,14 +97,14 @@ for (const token of [
 }
 if (timelineRuntime.includes('reset --hard') || timelineRuntime.includes('git reset')) throw new Error('Version Timeline must never reset the user repository');
 if (!timelineCursor.includes('timeline_set_active_path')) throw new Error('Version Timeline fork navigation cursor is missing');
-for (const token of ['prepareTimeline', 'rememberTimelinePrompt', 'checkpointCompletedTurn', 'timelineSetActivePath']) {
+for (const token of ['prepareTimeline', 'rememberTimelinePrompt', 'checkpointCompletedTurn', 'checkpointVisualSourceTransaction', 'timelineSetActivePath', "kind: 'visual'", 'acknowledgeSourceTransactionCheckpoint']) {
   if (!timelineController.includes(token)) throw new Error(`Version Timeline controller missing ${token}`);
 }
-for (const token of ['Versions', 'Save version', 'Restore', 'Compare', 'Going back never deletes later versions']) {
+for (const token of ['Versions', 'Save version', 'Restore', 'Compare', 'Direct visual edit', 'Going back never deletes later versions']) {
   if (!versionPanel.includes(token)) throw new Error(`Version Timeline product UX missing ${token}`);
 }
-for (const token of ['history-controls', 'VersionTimelinePanel', 'checkpointCompletedTurn', 'rememberTimelinePrompt', 'event.metaKey', 'goTimelineBack', 'goTimelineForward']) {
-  if (!app.includes(token)) throw new Error(`Version Timeline App integration missing ${token}`);
+for (const token of ['history-controls', 'VersionTimelinePanel', 'checkpointCompletedTurn', 'rememberTimelinePrompt', 'event.metaKey', 'goTimelineBack', 'goTimelineForward', "monument:source-transaction", "trigger: 'visual-edit'", 'setSourceTransactionOrchestrationBlocked']) {
+  if (!app.includes(token)) throw new Error(`Version Timeline/App orchestration missing ${token}`);
 }
 if (!entry.includes("./styles/timeline.css")) throw new Error('Version Timeline styles are not loaded');
 
@@ -117,9 +129,10 @@ for (const token of ['MAX_REVIEW_PATCH_BYTES', 'timeline_review_packet', '&paren
 for (const token of ['checkpointId', 'waiveFreshReviewFinding', 'blocker', 'requestFreshReviewFindingRepair', 'recordTimelineReviewQuality']) {
   if (!reviewController.includes(token)) throw new Error(`Fresh Review frontend contract missing ${token}`);
 }
-for (const token of ['evaluateShipGate', 'Deterministic checks', 'Browser evidence', 'Fresh Review', 'Pending work', 'blockingCount']) {
+for (const token of ['evaluateShipGate', 'Deterministic checks', 'Browser evidence', 'Fresh Review', 'Pending work', 'blockingCount', 'hasUnacknowledgedSourceTransaction', 'isSourceTransactionValidationBusy']) {
   if (!shipController.includes(token)) throw new Error(`Ship eligibility contract missing ${token}`);
 }
+if (shipController.includes('turnSerial <= 0')) throw new Error('Ship must accept the isolated negative Visual Editor generation namespace');
 for (const token of ['Ready to ship', 'Prepare commit', 'Review files being committed', 'Commit locally', 'No push was performed']) {
   if (!shipPanel.includes(token)) throw new Error(`Ship product UX missing ${token}`);
 }
@@ -158,8 +171,8 @@ if (codexClient.includes('textElements')) throw new Error('Legacy textElements p
 for (const token of ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/permissions/requestApproval', 'item/tool/requestUserInput', 'serverRequest/resolved', 'account/login/completed', 'account/updated', 'resolveApproval', 'answerUserInput', 'startChatGptLogin']) {
   if (!codexProjection.includes(token)) throw new Error(`Codex runtime projection missing ${token}`);
 }
-for (const source of [codex, processRuntime, previewRuntime, sourceLocator, systemRuntime, timelineRuntime, reviewRuntime, reviewDiff, gitShip]) {
+for (const source of [codex, processRuntime, previewRuntime, sourceLocator, sourceTransaction, systemRuntime, timelineRuntime, reviewRuntime, reviewDiff, gitShip]) {
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/timeline/queue/review/ship/release contract: PASS`);
+console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/timeline/queue/review/ship/source-transaction/release contract: PASS`);
