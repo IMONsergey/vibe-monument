@@ -122,7 +122,17 @@ function timelineStatusFor(evidence: VerificationEvidence): TimelineDeterministi
 }
 
 async function persistFinal(evidence: VerificationEvidence): Promise<void> {
+  const requestedCheckpointId = evidence.checkpointId;
+  if (requestedCheckpointId) {
+    const currentCheckpoint = await currentTimelineCheckpoint(evidence.projectId).catch(() => null);
+    if (!currentCheckpoint || currentCheckpoint.id !== requestedCheckpointId) {
+      evidence.checkpointId = null;
+      evidence.error = evidence.error || 'Source checkpoint changed while verification was running; these results are unbound and must be rerun.';
+    }
+  }
+
   await persist(evidence);
+  emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
   if (evidence.checkpointId) {
     const rawStatus = timelineStatusFor(evidence);
     const status: Exclude<TimelineDeterministicStatus, 'not-run'> = rawStatus === 'not-run' ? 'no-checks' : rawStatus;
@@ -152,7 +162,9 @@ export async function runVerification({
   turnSerial?: number;
 }): Promise<VerificationEvidence> {
   const currentCheckpoint = await currentTimelineCheckpoint(projectId).catch(() => null);
-  const resolvedCheckpointId = checkpointId ?? currentCheckpoint?.id ?? null;
+  const resolvedCheckpointId = currentCheckpoint && (!checkpointId || currentCheckpoint.id === checkpointId)
+    ? currentCheckpoint.id
+    : null;
   const resolvedTurnSerial = trigger === 'manual'
     ? currentCheckpoint?.turnSerial ?? (await currentTimelineTurnSerial(projectId, turnSerial).catch(() => turnSerial)) ?? 0
     : turnSerial;
@@ -164,7 +176,6 @@ export async function runVerification({
     evidence.status = 'error';
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
-    emit({ evidence, currentScript: null });
     await persistFinal(evidence);
     return evidence;
   }
@@ -174,7 +185,6 @@ export async function runVerification({
   if (!selected.length) {
     evidence.status = 'no-checks';
     evidence.finishedAt = Date.now();
-    emit({ evidence, currentScript: null });
     await persistFinal(evidence);
     return evidence;
   }
@@ -186,7 +196,6 @@ export async function runVerification({
     evidence.status = 'no-checks';
     evidence.permissionRequired = true;
     evidence.finishedAt = Date.now();
-    emit({ evidence, currentScript: null });
     await persistFinal(evidence);
     return evidence;
   }
@@ -203,15 +212,13 @@ export async function runVerification({
     }
     evidence.status = evidence.results.every((result) => result.success) ? 'passed' : 'failed';
     evidence.finishedAt = Date.now();
-    emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
     await persistFinal(evidence);
-    if (evidence.status === 'failed') await requestAutoRepairIfEnabled(evidence).catch(() => false);
+    if (evidence.status === 'failed' && evidence.checkpointId) await requestAutoRepairIfEnabled(evidence).catch(() => false);
     return evidence;
   } catch (error) {
     evidence.status = 'error';
     evidence.error = error instanceof Error ? error.message : String(error);
     evidence.finishedAt = Date.now();
-    emit({ evidence: { ...evidence, results: [...evidence.results] }, currentScript: null });
     await persistFinal(evidence);
     return evidence;
   }
