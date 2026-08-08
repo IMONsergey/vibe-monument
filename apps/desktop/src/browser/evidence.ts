@@ -46,7 +46,9 @@ export interface BrowserEvidenceRecord {
   projectId: string;
   snapshot: BrowserEvidenceSnapshot;
   stale: boolean;
+  /** Exact saved source identity. */
   capturedForCheckpointId: string | null;
+  /** Codex provenance only; direct/manual checkpoints can legitimately use 0. */
   capturedForTurnSerial: number;
 }
 
@@ -139,10 +141,11 @@ export async function captureBrowserEvidence(
   };
   emit(record);
   await stateSet(evidenceKey(projectId), record).catch(() => undefined);
-  if (resolvedTurnSerial > 0) {
+  if (resolvedCheckpointId) {
     await recordTimelineBrowserQuality(
       projectId,
-      resolvedTurnSerial,
+      resolvedCheckpointId,
+      resolvedTurnSerial > 0 ? resolvedTurnSerial : null,
       browserEvidenceHasIssues(record) ? 'issues' : 'clean',
       snapshot.capturedAt,
     ).catch(() => undefined);
