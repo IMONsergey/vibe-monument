@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 const jsx = await readFile(new URL('../src-tauri/src/jsx_source.rs', import.meta.url), 'utf8');
 const markup = await readFile(new URL('../src-tauri/src/markup_transaction_v2.rs', import.meta.url), 'utf8');
+const hardened = await readFile(new URL('../src-tauri/src/markup_transaction_hardened.rs', import.meta.url), 'utf8');
 const guard = await readFile(new URL('../src-tauri/src/markup_conflict_guard.rs', import.meta.url), 'utf8');
 const tauriLib = await readFile(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
 const tauriBuild = await readFile(new URL('../src-tauri/build.rs', import.meta.url), 'utf8');
@@ -31,10 +32,12 @@ test('bounded JSX scanner excludes lexical false positives and ambiguous slash s
   assert.ok(!jsx.includes('Regex::'));
 });
 
-test('only hardened markup v2 and the independent conflict guard are compiled and main-only', () => {
-  assert.ok(tauriLib.includes('mod markup_transaction_v2;'));
+test('production registers the hardened writer wrapper and independent guard as main-only', () => {
+  assert.ok(tauriLib.includes('mod markup_transaction_hardened;'));
   assert.ok(tauriLib.includes('mod markup_conflict_guard;'));
+  assert.ok(!tauriLib.includes('mod markup_transaction_v2;'));
   assert.ok(!tauriLib.includes('mod markup_transaction;'));
+  assert.ok(hardened.includes('include!("markup_transaction_v2.rs")'));
   for (const command of [
     'project_markup_edit_probe',
     'project_markup_conflict_guard',
@@ -105,6 +108,26 @@ test('independent native guard catches Tailwind multi-property competitors', () 
   assert.ok(!guard.includes('bash -c'));
 });
 
+test('native commit binds exact v2 ownership and conflict veto before fingerprinted atomic write', () => {
+  for (const token of [
+    'enforce_tailwind_conflict_guard',
+    'project_markup_conflict_guard',
+    'let resolved = resolve(&root, &selection, &change)?;',
+    'Source changed while validating the Tailwind conflict guard',
+    'fingerprint(&content) != expected_fingerprint',
+    'write_atomic(&canonical, &content)?',
+    'native_commit_refuses_hidden_size_competitor_after_v2_resolution',
+    'native_commit_preserves_safe_tailwind_write',
+  ]) assert.ok(hardened.includes(token), `hardened native commit missing ${token}`);
+
+  const resolve = hardened.indexOf('let resolved = resolve(&root, &selection, &change)?;');
+  const guardCall = hardened.indexOf('enforce_tailwind_conflict_guard(', resolve + 1);
+  const reread = hardened.indexOf('let mut content = fs::read_to_string', guardCall);
+  const fingerprint = hardened.indexOf('fingerprint(&content) != expected_fingerprint', reread);
+  const write = hardened.indexOf('write_atomic(&canonical, &content)?', fingerprint);
+  assert.ok(resolve >= 0 && guardCall > resolve && reread > guardCall && fingerprint > reread && write > fingerprint);
+});
+
 test('JSX inline style direct editing refuses dynamic ownership and outranks Tailwind', () => {
   for (const token of [
     'jsx-inline-style-literal',
@@ -117,7 +140,7 @@ test('JSX inline style direct editing refuses dynamic ownership and outranks Tai
   ]) assert.ok(markup.includes(token), `JSX style contract missing ${token}`);
 });
 
-test('markup writes are stale-source guarded, root-contained and atomic', () => {
+test('markup core and hardened wrapper preserve stale-source root and atomic write boundaries', () => {
   for (const token of [
     'fingerprint(&content)',
     'fs::symlink_metadata',
@@ -125,15 +148,15 @@ test('markup writes are stale-source guarded, root-contained and atomic', () => 
     '.create_new(true)',
     'file.sync_all()',
     'fs::rename(&temp, path)',
-    'Source changed after markup transaction resolution',
-    'Markup source value changed after resolution',
     'Updated JSX/TSX failed bounded opening-tag structural validation',
-  ]) assert.ok(markup.includes(token), `markup write boundary missing ${token}`);
+  ]) assert.ok(markup.includes(token) || hardened.includes(token), `markup write boundary missing ${token}`);
   assert.ok(!markup.includes('sh -c'));
   assert.ok(!markup.includes('bash -c'));
+  assert.ok(!hardened.includes('sh -c'));
+  assert.ok(!hardened.includes('bash -c'));
 });
 
-test('frontend cascade and Tailwind conflict proof fail closed', () => {
+test('frontend cascade and Tailwind conflict proof fail closed before native guarded commit', () => {
   for (const token of [
     'nativeMarkupProbe',
     'inlineStyleBlocksStylesheetFallback',
@@ -149,7 +172,7 @@ test('frontend cascade and Tailwind conflict proof fail closed', () => {
   assert.ok(client.includes("cssPlan.mode !== 'codex'"));
 });
 
-test('dry-run and commit both re-run exact native ownership plus conflict proof', () => {
+test('dry-run and commit both re-run exact frontend proof and commit enters guarded native authority', () => {
   const preview = client.indexOf('export async function previewVisualMarkupTransaction');
   const commit = client.indexOf('export async function commitVisualMarkupTransaction');
   assert.ok(preview >= 0);
@@ -158,9 +181,10 @@ test('dry-run and commit both re-run exact native ownership plus conflict proof'
   assert.ok(client.indexOf('const exact = await exactDirectProbe', commit) > commit);
   assert.ok(client.indexOf("'project_markup_transaction_preview'", preview) > preview);
   assert.ok(client.indexOf("'project_markup_transaction_commit'", commit) > commit);
+  assert.ok(tauriLib.includes('use markup_transaction_hardened::{project_markup_edit_probe, project_markup_transaction_commit, project_markup_transaction_preview};'));
 });
 
-test('Properties exposes exact source lane, Codex escape hatch and preserves token truncation safety', () => {
+test('Properties exposes exact source lane Codex escape hatch and preserves token truncation safety', () => {
   for (const token of [
     'Source-native',
     'Tailwind utility',
