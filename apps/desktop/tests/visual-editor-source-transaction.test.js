@@ -69,7 +69,7 @@ test('direct Apply is generation-bound and cannot overlap other source mutation'
   assert.ok(transactionState.includes('unacknowledgedCheckpoints'));
 });
 
-test('visual generations use an isolated serial namespace and flow through evidence and repair', () => {
+test('visual generations use an isolated serial namespace and flow through evidence and explicit repair', () => {
   assert.ok(timelineTypes.includes("'visual'"));
   assert.ok(timeline.includes("kind: 'visual'"));
   assert.ok(timeline.includes('return -(Date.now() * 1000 + visualGenerationCounter)'));
@@ -84,7 +84,7 @@ test('visual generations use an isolated serial namespace and flow through evide
   assert.ok(app.includes('endSourceTransactionValidation'));
   assert.ok(app.includes('setSourceTransactionOrchestrationBlocked'));
 
-  assert.ok(repair.includes("evidence.trigger !== 'visual-edit'"));
+  assert.ok(repair.includes("evidence.trigger !== 'codex-turn'"));
   assert.ok(repair.includes('evidence.turnSerial === 0'));
   assert.ok(!repair.includes('evidence.turnSerial <= 0'));
   assert.ok(review.includes('record.turnSerial !== 0'));
