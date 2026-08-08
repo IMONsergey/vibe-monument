@@ -358,6 +358,8 @@ fn selector_score(selector: &str, id: &str) -> u32 {
         || selector.len() > MAX_SELECTOR_BYTES
         || selector.contains(',')
         || selector.contains(':')
+        || selector.contains('[')
+        || selector.contains(']')
         || selector.contains("::")
     {
         return 0;
@@ -882,6 +884,13 @@ mod tests {
         let (root, mut input) = fixture("#hero { padding-top: VAR(--space); }\n");
         input.before = "VAR(--space)".into();
         input.after = "32px".into();
+        assert_eq!(plan_internal(&input).unwrap().status, "not-found");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refuses_attribute_selector_id_lookalikes() {
+        let (root, input) = fixture("a[href=\"#hero\"] { padding-top: 24px; }\n");
         assert_eq!(plan_internal(&input).unwrap().status, "not-found");
         let _ = fs::remove_dir_all(root);
     }
