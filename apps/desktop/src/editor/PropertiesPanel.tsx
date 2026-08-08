@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  isVisualContentBatch,
+  probeVisualContentEdit,
+  type VisualContentDecision,
+  type VisualContentProbe,
+} from './contentEditing';
 import type { EditorSourceOwnership } from './ownership';
 import type { VisualPropertyChange } from './intent';
 import {
@@ -18,6 +24,7 @@ import type { EditorLayer, EditorSelection } from './types';
 
 type PropertySpec = { label: string; key: string; editable?: boolean; wide?: boolean };
 type PropertyGroupSpec = { title: string; items: PropertySpec[] };
+type SemanticSpec = { label: string; key: 'ariaLabel' | 'title' | 'alt' | 'placeholder'; wide?: boolean };
 
 const GROUPS: PropertyGroupSpec[] = [
   { title: 'Size', items: [
@@ -55,19 +62,37 @@ const EDITABLE_KEYS = new Set(GROUPS.flatMap((group) => group.items.filter((item
 const TEXT_KEY = 'textContent';
 const MAX_DRAFT_VALUE = 300;
 const MAX_TEXT_VALUE = 1200;
+const MAX_SEMANTIC_VALUE = 800;
 
 function cleanDraft(value: string, limit = MAX_DRAFT_VALUE): string {
   return value.replace(/[\r\n\t]+/g, ' ').slice(0, limit);
+}
+
+function cleanSemanticDraft(value: string): string {
+  return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, MAX_SEMANTIC_VALUE);
 }
 
 function canEditText(selection: EditorSelection | null, layer: EditorLayer | null): boolean {
   return Boolean(selection && layer?.editable.text && !selection.directTextTruncated && selection.directText.length > 0);
 }
 
+function semanticSpecs(tag: string): SemanticSpec[] {
+  const common: SemanticSpec[] = [
+    { label: 'ARIA label', key: 'ariaLabel', wide: true },
+    { label: 'Title', key: 'title', wide: true },
+  ];
+  if (tag === 'img') common.push({ label: 'Alt', key: 'alt', wide: true });
+  if (tag === 'input' || tag === 'textarea') common.push({ label: 'Placeholder', key: 'placeholder', wide: true });
+  return common;
+}
+
 function initialDraft(selection: EditorSelection | null, layer: EditorLayer | null): Record<string, string> {
   if (!selection) return {};
   const values = Object.fromEntries([...EDITABLE_KEYS].map((key) => [key, selection.styles[key] || '']));
   if (canEditText(selection, layer)) values[TEXT_KEY] = selection.directText;
+  if (selection.contentReady) {
+    for (const spec of semanticSpecs(selection.tag)) values[spec.key] = selection.contentAttributes[spec.key];
+  }
   return values;
 }
 
@@ -111,32 +136,76 @@ function PropertyGroup({ group, selection, draft, onChange }: {
   );
 }
 
+function ContentFields({ selection, layer, draft, onChange }: {
+  selection: EditorSelection;
+  layer: EditorLayer | null;
+  draft: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
+  const textEditable = canEditText(selection, layer);
+  const specs = semanticSpecs(selection.tag);
+  return (
+    <section className="property-group property-content-group">
+      <div className="property-group-title">Content & semantics</div>
+      {textEditable ? (
+        <label className={`property-text-field ${(draft[TEXT_KEY] ?? '').trim() !== selection.directText.trim() ? 'dirty' : ''}`}>
+          <span>Text</span>
+          <textarea
+            value={draft[TEXT_KEY] ?? selection.directText}
+            maxLength={MAX_TEXT_VALUE}
+            onChange={(event) => onChange(TEXT_KEY, event.target.value.slice(0, MAX_TEXT_VALUE))}
+          />
+        </label>
+      ) : selection.directTextTruncated ? (
+        <div className="property-text-warning">Direct text exceeds the safe editor limit. Use Codex so the complete source can be inspected.</div>
+      ) : null}
+      {specs.length ? (
+        <div className="property-content-semantic-grid">
+          {specs.map((spec) => {
+            const observed = selection.contentAttributes[spec.key];
+            const value = draft[spec.key] ?? observed;
+            const dirty = selection.contentReady && value !== observed;
+            return (
+              <label className={`property-content-semantic-field ${dirty ? 'dirty' : ''}`} key={spec.key}>
+                <span>{spec.label}</span>
+                <input
+                  value={selection.contentReady ? value : ''}
+                  disabled={!selection.contentReady}
+                  placeholder={selection.contentReady ? 'Not set' : 'Reading live value…'}
+                  spellCheck={false}
+                  maxLength={MAX_SEMANTIC_VALUE}
+                  onChange={(event) => onChange(spec.key, cleanSemanticDraft(event.target.value))}
+                />
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
+      {selection.id && selection.idUnique && !selection.contentReady ? (
+        <div className="property-content-reading">Reading bounded live semantic attributes from the selected element…</div>
+      ) : null}
+    </section>
+  );
+}
+
 function TokenScopeCard({ probe, change, decision, onDecision }: {
   probe: VisualTokenEditProbe;
   change: VisualPropertyChange;
   decision: VisualTokenEditDecision;
   onDecision: (decision: VisualTokenEditDecision) => void;
 }) {
-  const localDefinitions = probe.definitions.filter((definition) =>
-    !definition.conditional && definition.scope === 'scoped' && definition.selectedScope,
-  );
-  const globalDefinitions = probe.definitions.filter((definition) =>
-    !definition.conditional && definition.scope === 'global',
-  );
+  const localDefinitions = probe.definitions.filter((definition) => !definition.conditional && definition.scope === 'scoped' && definition.selectedScope);
+  const globalDefinitions = probe.definitions.filter((definition) => !definition.conditional && definition.scope === 'global');
   const conditionalDefinitions = probe.definitions.filter((definition) => definition.conditional);
   const currentKey = tokenDecisionKey(decision);
   const selectedDefinition = decision.mode === 'token' ? decision.definition : null;
   const globalConfirmationRequired = tokenDecisionRequiresGlobalConfirmation(probe, decision);
   const beforeLine = decision.mode === 'instance'
     ? `${probe.source?.property || change.property}: ${probe.source?.sourceValue || probe.token}`
-    : decision.mode === 'token'
-      ? `${probe.token}: ${decision.definition.value}`
-      : null;
+    : decision.mode === 'token' ? `${probe.token}: ${decision.definition.value}` : null;
   const afterLine = decision.mode === 'instance'
     ? `${probe.source?.property || change.property}: ${change.after}`
-    : decision.mode === 'token'
-      ? `${probe.token}: ${change.after}`
-      : null;
+    : decision.mode === 'token' ? `${probe.token}: ${change.after}` : null;
 
   return (
     <section className="property-token-card">
@@ -144,86 +213,41 @@ function TokenScopeCard({ probe, change, decision, onDecision }: {
         <div><span className="property-token-badge">Token-backed</span><strong>{probe.token}</strong></div>
         <span>{probe.usageCount} source ref{probe.usageCount === 1 ? '' : 's'}</span>
       </div>
-      <div className="property-token-source">
-        <code>{probe.source?.path}:{probe.source?.line}</code>
-        <span>{probe.reason}</span>
-      </div>
+      <div className="property-token-source"><code>{probe.source?.path}:{probe.source?.line}</code><span>{probe.reason}</span></div>
       <div className="property-token-choice-title">Change scope</div>
       <div className="property-token-choices">
-        <button
-          type="button"
-          className={currentKey === 'instance' ? 'selected' : ''}
-          disabled={!probe.instanceEligible || probe.truncated}
-          onClick={() => onDecision({ mode: 'instance' })}
-        >
-          <strong>This element</strong>
-          <span>Requires a unique live ID plus an ID-owned source rule. Detach only that proven instance from {probe.token}.</span>
+        <button type="button" className={currentKey === 'instance' ? 'selected' : ''} disabled={!probe.instanceEligible || probe.truncated} onClick={() => onDecision({ mode: 'instance' })}>
+          <strong>This element</strong><span>Requires a unique live ID plus an ID-owned source rule. Detach only that proven instance from {probe.token}.</span>
         </button>
         {localDefinitions.map((definition) => {
           const next: VisualTokenEditDecision = { mode: 'token', definition, confirmSharedGlobal: false };
           return (
-            <button
-              type="button"
-              className={currentKey === tokenDecisionKey(next) ? 'selected' : ''}
-              disabled={probe.truncated}
-              key={`local:${definition.path}:${definition.line}:${definition.selector}`}
-              onClick={() => onDecision(next)}
-            >
-              <strong>Local scope · {definition.selector}</strong>
-              <span>{definition.path}:{definition.line} · current {definition.value}</span>
+            <button type="button" className={currentKey === tokenDecisionKey(next) ? 'selected' : ''} disabled={probe.truncated} key={`local:${definition.path}:${definition.line}:${definition.selector}`} onClick={() => onDecision(next)}>
+              <strong>Local scope · {definition.selector}</strong><span>{definition.path}:{definition.line} · current {definition.value}</span>
             </button>
           );
         })}
         {globalDefinitions.map((definition) => {
           const next: VisualTokenEditDecision = { mode: 'token', definition, confirmSharedGlobal: false };
           return (
-            <button
-              type="button"
-              className={currentKey === tokenDecisionKey(next) ? 'selected global' : 'global'}
-              disabled={probe.truncated}
-              key={`global:${definition.path}:${definition.line}:${definition.selector}`}
-              onClick={() => onDecision(next)}
-            >
-              <strong>Global token</strong>
-              <span>{definition.path}:{definition.line} · {probe.usageCount} bounded source ref{probe.usageCount === 1 ? '' : 's'} observed</span>
+            <button type="button" className={currentKey === tokenDecisionKey(next) ? 'selected global' : 'global'} disabled={probe.truncated} key={`global:${definition.path}:${definition.line}:${definition.selector}`} onClick={() => onDecision(next)}>
+              <strong>Global token</strong><span>{definition.path}:{definition.line} · {probe.usageCount} bounded source ref{probe.usageCount === 1 ? '' : 's'} observed</span>
             </button>
           );
         })}
-        <button
-          type="button"
-          className={currentKey === 'codex' ? 'selected' : ''}
-          onClick={() => onDecision({ mode: 'codex' })}
-        >
-          <strong>Use Codex</strong>
-          <span>Keep the source-aware reasoning path for this edit.</span>
+        <button type="button" className={currentKey === 'codex' ? 'selected' : ''} onClick={() => onDecision({ mode: 'codex' })}>
+          <strong>Use Codex</strong><span>Keep the source-aware reasoning path for this edit.</span>
         </button>
       </div>
-      {conditionalDefinitions.length ? (
-        <div className="property-token-warning">
-          {conditionalDefinitions.length} responsive/conditional token definition{conditionalDefinitions.length === 1 ? '' : 's'} detected. They stay read-only here until breakpoint-aware authoring exists; use Codex for those scopes.
-        </div>
-      ) : null}
+      {conditionalDefinitions.length ? <div className="property-token-warning">{conditionalDefinitions.length} responsive/conditional token definition{conditionalDefinitions.length === 1 ? '' : 's'} detected. They stay read-only here until breakpoint-aware authoring exists; use Codex for those scopes.</div> : null}
       {selectedDefinition?.scope === 'global' && !probe.truncated ? (
         <label className={`property-token-confirm ${globalConfirmationRequired ? 'required' : ''}`}>
-          <input
-            type="checkbox"
-            checked={decision.mode === 'token' && decision.confirmSharedGlobal}
-            onChange={(event) => {
-              if (decision.mode === 'token') onDecision({ ...decision, confirmSharedGlobal: event.target.checked });
-            }}
-          />
+          <input type="checkbox" checked={decision.mode === 'token' && decision.confirmSharedGlobal} onChange={(event) => { if (decision.mode === 'token') onDecision({ ...decision, confirmSharedGlobal: event.target.checked }); }} />
           <span>I understand this changes a global token. The bounded scans currently observe {probe.usageCount} source ref{probe.usageCount === 1 ? '' : 's'}; live impact may be broader through cascade and inheritance.</span>
         </label>
       ) : null}
-      {beforeLine && afterLine && !probe.truncated ? (
-        <div className="property-token-diff" aria-label="Source preview">
-          <div><span>−</span><code>{beforeLine}</code></div>
-          <div><span>+</span><code>{afterLine}</code></div>
-        </div>
-      ) : null}
-      {probe.truncated ? (
-        <div className="property-token-warning">The bounded token scan was truncated. Direct token mutation is disabled; Apply will use Codex.</div>
-      ) : null}
+      {beforeLine && afterLine && !probe.truncated ? <div className="property-token-diff" aria-label="Source preview"><div><span>−</span><code>{beforeLine}</code></div><div><span>+</span><code>{afterLine}</code></div></div> : null}
+      {probe.truncated ? <div className="property-token-warning">The bounded token scan was truncated. Direct token mutation is disabled; Apply will use Codex.</div> : null}
     </section>
   );
 }
@@ -237,35 +261,52 @@ function MarkupSourceCard({ probe, decision, onDecision }: {
   const laneLabel = operation?.lane === 'tailwind' ? 'Tailwind utility' : operation?.lane === 'jsx-style' ? 'JSX inline style' : 'JSX/Tailwind';
   return (
     <section className={`property-markup-card ${probe.mode}`}>
-      <div className="property-markup-head">
-        <div><span className="property-markup-badge">Source-native</span><strong>{laneLabel}</strong></div>
-        {operation ? <span>{operation.ownerKind}</span> : <span>Codex route</span>}
-      </div>
+      <div className="property-markup-head"><div><span className="property-markup-badge">Source-native</span><strong>{laneLabel}</strong></div>{operation ? <span>{operation.ownerKind}</span> : <span>Codex route</span>}</div>
       {operation ? <code>{operation.path}:{operation.line}</code> : null}
       <span className="property-markup-copy">{probe.reason}</span>
-      {operation ? (
-        <div className="property-markup-diff" aria-label="Markup source preview">
-          <div><span>−</span><code>{operation.sourceBefore}</code></div>
-          <div><span>+</span><code>{operation.sourceAfter}</code></div>
+      {operation ? <div className="property-markup-diff" aria-label="Markup source preview"><div><span>−</span><code>{operation.sourceBefore}</code></div><div><span>+</span><code>{operation.sourceAfter}</code></div></div> : null}
+      <div className="property-markup-actions">
+        <button type="button" className={decision === 'direct' ? 'selected' : ''} disabled={probe.mode !== 'deterministic' || !operation} onClick={() => onDecision('direct')}>
+          <strong>Apply to source</strong><span>{operation?.lane === 'tailwind' ? 'Replace this proven static utility.' : 'Replace this proven JSX style literal.'}</span>
+        </button>
+        <button type="button" className={decision === 'codex' ? 'selected' : ''} onClick={() => onDecision('codex')}>
+          <strong>Use Codex</strong><span>Inspect surrounding component/source semantics before editing.</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ContentSourceCard({ probe, decision, onDecision }: {
+  probe: VisualContentProbe;
+  decision: VisualContentDecision;
+  onDecision: (decision: VisualContentDecision) => void;
+}) {
+  const path = probe.operations[0]?.path;
+  return (
+    <section className={`property-content-source-card ${probe.mode}`}>
+      <div className="property-content-source-head">
+        <div><span className="property-content-source-badge">Content source</span><strong>{probe.operations.length || 0} operation{probe.operations.length === 1 ? '' : 's'}</strong></div>
+        <span>{probe.mode === 'deterministic' ? 'Atomic batch' : 'Codex route'}</span>
+      </div>
+      {path ? <code>{path}</code> : null}
+      <span className="property-content-source-copy">{probe.reason}</span>
+      {probe.operations.length ? (
+        <div className="property-content-source-ops">
+          {probe.operations.map((operation, index) => (
+            <div className="property-content-source-op" key={`${operation.property}:${operation.line}:${index}`}>
+              <div><strong>{operation.property}</strong><span>{operation.ownerKind} · line {operation.line}</span></div>
+              <div className="property-content-source-diff"><span>−</span><code>{operation.sourceBefore || '[insert]'}</code><span>+</span><code>{operation.sourceAfter}</code></div>
+            </div>
+          ))}
         </div>
       ) : null}
-      <div className="property-markup-actions">
-        <button
-          type="button"
-          className={decision === 'direct' ? 'selected' : ''}
-          disabled={probe.mode !== 'deterministic' || !operation}
-          onClick={() => onDecision('direct')}
-        >
-          <strong>Apply to source</strong>
-          <span>{operation?.lane === 'tailwind' ? 'Replace this proven static utility.' : 'Replace this proven JSX style literal.'}</span>
+      <div className="property-content-source-actions">
+        <button type="button" className={decision === 'direct' ? 'selected' : ''} disabled={probe.mode !== 'deterministic' || !probe.operations.length} onClick={() => onDecision('direct')}>
+          <strong>Apply atomic content batch</strong><span>Write all proven text/semantic changes to the same JSX owner.</span>
         </button>
-        <button
-          type="button"
-          className={decision === 'codex' ? 'selected' : ''}
-          onClick={() => onDecision('codex')}
-        >
-          <strong>Use Codex</strong>
-          <span>Inspect surrounding component/source semantics before editing.</span>
+        <button type="button" className={decision === 'codex' ? 'selected' : ''} onClick={() => onDecision('codex')}>
+          <strong>Use Codex</strong><span>Use source-aware reasoning for nested, dynamic or ambiguous content.</span>
         </button>
       </div>
     </section>
@@ -282,6 +323,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
     changes: VisualPropertyChange[],
     tokenDecision?: VisualTokenEditDecision,
     markupDecision?: VisualMarkupDecision,
+    contentDecision?: VisualContentDecision,
   ) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(selection, layer));
@@ -289,6 +331,8 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
   const [tokenDecision, setTokenDecision] = useState<VisualTokenEditDecision | null>(null);
   const [markupProbe, setMarkupProbe] = useState<VisualMarkupEditProbe | null>(null);
   const [markupDecision, setMarkupDecision] = useState<VisualMarkupDecision | null>(null);
+  const [contentProbe, setContentProbe] = useState<VisualContentProbe | null>(null);
+  const [contentDecision, setContentDecision] = useState<VisualContentDecision | null>(null);
   const [sourceProbeLoading, setSourceProbeLoading] = useState(false);
 
   useEffect(() => {
@@ -297,8 +341,10 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
     setTokenDecision(null);
     setMarkupProbe(null);
     setMarkupDecision(null);
+    setContentProbe(null);
+    setContentDecision(null);
     setSourceProbeLoading(false);
-  }, [selection, layer?.text, layer?.editable.text]);
+  }, [selection?.nodeId, selection?.directText, selection?.contentReady, selection?.contentAttributes.ariaLabel, selection?.contentAttributes.title, selection?.contentAttributes.alt, selection?.contentAttributes.placeholder, layer?.text, layer?.editable.text]);
 
   const changes = useMemo<VisualPropertyChange[]>(() => {
     if (!selection) return [];
@@ -307,12 +353,20 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
       const after = (draft[property] ?? before).trim();
       return after && after !== before.trim() ? [{ property, before, after }] : [];
     });
-    if (!canEditText(selection, layer)) return styleChanges;
-    const beforeText = selection.directText;
-    const afterText = (draft[TEXT_KEY] ?? beforeText).trim();
-    return afterText && afterText !== beforeText.trim()
-      ? [{ property: TEXT_KEY, before: beforeText, after: afterText }, ...styleChanges]
-      : styleChanges;
+    const contentChanges: VisualPropertyChange[] = [];
+    if (canEditText(selection, layer)) {
+      const beforeText = selection.directText;
+      const afterText = (draft[TEXT_KEY] ?? beforeText).trim();
+      if (afterText && afterText !== beforeText.trim()) contentChanges.push({ property: TEXT_KEY, before: beforeText, after: afterText });
+    }
+    if (selection.contentReady) {
+      for (const spec of semanticSpecs(selection.tag)) {
+        const before = selection.contentAttributes[spec.key];
+        const after = draft[spec.key] ?? before;
+        if (after !== before) contentChanges.push({ property: spec.key, before, after });
+      }
+    }
+    return [...contentChanges, ...styleChanges];
   }, [draft, layer, selection]);
 
   useEffect(() => {
@@ -320,7 +374,9 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
     setTokenDecision(null);
     setMarkupProbe(null);
     setMarkupDecision(null);
-    if (!selection || changes.length !== 1 || changes[0].property === TEXT_KEY) {
+    setContentProbe(null);
+    setContentDecision(null);
+    if (!selection || !changes.length) {
       setSourceProbeLoading(false);
       return;
     }
@@ -328,92 +384,71 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
     setSourceProbeLoading(true);
     const timer = window.setTimeout(() => {
       void (async () => {
+        if (isVisualContentBatch(changes)) {
+          const content = await probeVisualContentEdit(selection, changes);
+          if (disposed) return;
+          setContentProbe(content);
+          setContentDecision(content ? (content.mode === 'deterministic' ? 'direct' : 'codex') : null);
+          return;
+        }
+        if (changes.length !== 1 || changes[0].property === TEXT_KEY) return;
         const token = await probeVisualTokenEdit(selection, changes[0]);
         if (disposed) return;
         if (token?.eligible) {
           setTokenProbe(token);
           setTokenDecision(token.truncated ? { mode: 'codex' } : defaultTokenDecision(token));
-          setMarkupProbe(null);
-          setMarkupDecision(null);
           return;
         }
         const markup = await probeVisualMarkupEdit(selection, changes[0]);
         if (disposed) return;
-        setTokenProbe(null);
-        setTokenDecision(null);
         setMarkupProbe(markup);
         setMarkupDecision(markup ? (markup.mode === 'deterministic' ? 'direct' : 'codex') : null);
       })().finally(() => {
         if (!disposed) setSourceProbeLoading(false);
       });
     }, 180);
-    return () => {
-      disposed = true;
-      window.clearTimeout(timer);
-    };
+    return () => { disposed = true; window.clearTimeout(timer); };
   }, [changes, selection]);
 
   const changeDraft = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const reset = () => {
     setDraft(initialDraft(selection, layer));
-    setTokenProbe(null);
-    setTokenDecision(null);
-    setMarkupProbe(null);
-    setMarkupDecision(null);
+    setTokenProbe(null); setTokenDecision(null);
+    setMarkupProbe(null); setMarkupDecision(null);
+    setContentProbe(null); setContentDecision(null);
   };
   const globalConfirmationRequired = Boolean(tokenProbe && tokenDecision && !tokenProbe.truncated && tokenDecisionRequiresGlobalConfirmation(tokenProbe, tokenDecision));
   const applyChanges = async () => {
     if (!changes.length || applying || sourceProbeLoading || globalConfirmationRequired) return;
-    const token = tokenProbe
-      ? tokenProbe.truncated
-        ? { mode: 'codex' as const }
-        : tokenDecision ?? { mode: 'codex' as const }
-      : undefined;
+    const token = tokenProbe ? tokenProbe.truncated ? { mode: 'codex' as const } : tokenDecision ?? { mode: 'codex' as const } : undefined;
     const markup = !tokenProbe && markupProbe ? markupDecision ?? 'codex' : undefined;
-    if (await onApply(changes, token, markup)) {
-      setDraft(initialDraft(selection, layer));
-      setTokenProbe(null);
-      setTokenDecision(null);
-      setMarkupProbe(null);
-      setMarkupDecision(null);
-    }
+    const content = contentProbe ? contentDecision ?? 'codex' : undefined;
+    if (await onApply(changes, token, markup, content)) reset();
   };
 
   if (!selection) {
-    return (
-      <aside className="visual-properties-panel" aria-label="Properties">
-        <div className="visual-panel-header"><div><strong>Properties</strong><span>Live computed values</span></div></div>
-        <div className="properties-empty"><div>◇</div><strong>Select a layer</strong><span>Choose an element on the canvas or in Layers to inspect its real layout and styles.</span></div>
-      </aside>
-    );
+    return <aside className="visual-properties-panel" aria-label="Properties"><div className="visual-panel-header"><div><strong>Properties</strong><span>Live computed values</span></div></div><div className="properties-empty"><div>◇</div><strong>Select a layer</strong><span>Choose an element on the canvas or in Layers to inspect its real layout and styles.</span></div></aside>;
   }
 
-  const textEditable = canEditText(selection, layer);
   const applyStatus = applyMessage
     || (sourceProbeLoading ? 'Inspecting source ownership…'
-      : tokenProbe?.truncated ? 'Bounded token evidence truncated · Codex fallback required'
-        : globalConfirmationRequired ? `Confirm global ${tokenProbe?.token || 'token'} scope`
-          : tokenProbe ? 'Choose a safe token scope, then apply'
-            : markupProbe?.mode === 'deterministic' && markupDecision === 'direct' ? `Direct ${markupProbe.operation?.lane === 'tailwind' ? 'Tailwind' : 'JSX style'} source edit ready`
-              : markupProbe ? `Codex fallback · ${markupProbe.reason}`
-                : changes.length ? 'Ready to update real source' : 'Edit a property above');
+      : contentProbe?.mode === 'deterministic' && contentDecision === 'direct' ? `Direct JSX content batch ready · ${contentProbe.operations.length} operation${contentProbe.operations.length === 1 ? '' : 's'}`
+        : contentProbe ? `Codex fallback · ${contentProbe.reason}`
+          : tokenProbe?.truncated ? 'Bounded token evidence truncated · Codex fallback required'
+            : globalConfirmationRequired ? `Confirm global ${tokenProbe?.token || 'token'} scope`
+              : tokenProbe ? 'Choose a safe token scope, then apply'
+                : markupProbe?.mode === 'deterministic' && markupDecision === 'direct' ? `Direct ${markupProbe.operation?.lane === 'tailwind' ? 'Tailwind' : 'JSX style'} source edit ready`
+                  : markupProbe ? `Codex fallback · ${markupProbe.reason}`
+                    : changes.length ? 'Ready to update real source' : 'Edit a property above');
 
   return (
     <aside className="visual-properties-panel" aria-label="Properties">
-      <div className="visual-panel-header">
-        <div><strong>Properties</strong><span>{layer?.kind || selection.tag} · source-native</span></div>
-        <span className="properties-live">Live</span>
-      </div>
+      <div className="visual-panel-header"><div><strong>Properties</strong><span>{layer?.kind || selection.tag} · source-native</span></div><span className="properties-live">Live</span></div>
       <div className="properties-scroll">
         <section className="property-selection-card">
           <div className="property-selection-name"><span>&lt;{selection.tag}&gt;</span><strong>{selection.accessibleName || layer?.name || selection.text || selection.tag}</strong></div>
           <code>{selection.selector}</code>
-          <div className="property-selection-meta">
-            <span>{Math.round(selection.rect.width || 0)} × {Math.round(selection.rect.height || 0)}</span>
-            {selection.role ? <span>role={selection.role}</span> : null}
-            {selection.idUnique ? <span>unique id</span> : null}
-            {selection.classes.length ? <span>{selection.classes.length} class{selection.classes.length === 1 ? '' : 'es'}</span> : null}
-          </div>
+          <div className="property-selection-meta"><span>{Math.round(selection.rect.width || 0)} × {Math.round(selection.rect.height || 0)}</span>{selection.role ? <span>role={selection.role}</span> : null}{selection.idUnique ? <span>unique id</span> : null}{selection.classes.length ? <span>{selection.classes.length} class{selection.classes.length === 1 ? '' : 'es'}</span> : null}</div>
         </section>
 
         <section className={`property-source-card ${ownership?.level || 'loading'}`}>
@@ -423,36 +458,14 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
           {ownership?.alternatives.length ? <details><summary>{ownership.alternatives.length} alternative candidate{ownership.alternatives.length === 1 ? '' : 's'}</summary><div>{ownership.alternatives.map((hint) => <code key={`${hint.path}:${hint.line}`}>{hint.path}:{hint.line} · {hint.score}</code>)}</div></details> : null}
         </section>
 
-        {textEditable ? (
-          <section className="property-group property-content-group">
-            <div className="property-group-title">Content</div>
-            <label className={`property-text-field ${(draft[TEXT_KEY] ?? '').trim() !== selection.directText.trim() ? 'dirty' : ''}`}>
-              <span>Text</span>
-              <textarea
-                value={draft[TEXT_KEY] ?? selection.directText}
-                maxLength={MAX_TEXT_VALUE}
-                onChange={(event) => changeDraft(TEXT_KEY, event.target.value.slice(0, MAX_TEXT_VALUE))}
-              />
-            </label>
-          </section>
-        ) : selection.directTextTruncated ? (
-          <div className="property-text-warning">Direct text exceeds the safe editor limit. Use the prompt so Codex can inspect the complete source before editing.</div>
-        ) : null}
-
+        <ContentFields selection={selection} layer={layer} draft={draft} onChange={changeDraft} />
         {GROUPS.map((group) => <PropertyGroup key={group.title} group={group} selection={selection} draft={draft} onChange={changeDraft} />)}
 
-        {tokenProbe && tokenDecision && changes.length === 1 ? (
-          <TokenScopeCard probe={tokenProbe} change={changes[0]} decision={tokenDecision} onDecision={setTokenDecision} />
-        ) : null}
+        {contentProbe && contentDecision && isVisualContentBatch(changes) ? <ContentSourceCard probe={contentProbe} decision={contentDecision} onDecision={setContentDecision} /> : null}
+        {tokenProbe && tokenDecision && changes.length === 1 ? <TokenScopeCard probe={tokenProbe} change={changes[0]} decision={tokenDecision} onDecision={setTokenDecision} /> : null}
+        {!tokenProbe && markupProbe && markupDecision && changes.length === 1 ? <MarkupSourceCard probe={markupProbe} decision={markupDecision} onDecision={setMarkupDecision} /> : null}
 
-        {!tokenProbe && markupProbe && markupDecision && changes.length === 1 ? (
-          <MarkupSourceCard probe={markupProbe} decision={markupDecision} onDecision={setMarkupDecision} />
-        ) : null}
-
-        <section className="property-source-note">
-          <strong>Source-authoritative editing</strong>
-          <span>Monument routes each edit through the narrowest proven lane: token scope, JSX/Tailwind static ownership, literal CSS, then Codex. Truncated token evidence, dynamic class composition, spreads, responsive/state variants, custom-component ambiguity and unsupported values never gain deterministic write authority. Every direct edit becomes one Version Timeline generation and invalidates stale evidence.</span>
-        </section>
+        <section className="property-source-note"><strong>Source-authoritative editing</strong><span>Monument routes each edit through the narrowest proven lane: static JSX content/semantics, token scope, JSX/Tailwind static ownership, literal CSS, then Codex. Nested/dynamic text, semantic spreads, truncated token evidence, dynamic class composition, responsive/state variants and unsupported component props never gain deterministic write authority. Every direct edit becomes one Version Timeline generation and invalidates stale evidence.</span></section>
       </div>
 
       <div className={`property-apply-bar ${changes.length ? 'dirty' : ''}`}>
