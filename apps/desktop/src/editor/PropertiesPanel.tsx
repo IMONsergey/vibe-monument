@@ -58,12 +58,7 @@ function ownershipLabel(ownership: EditorSourceOwnership | null): string {
   return 'Source unresolved';
 }
 
-function PropertyGroup({
-  group,
-  selection,
-  draft,
-  onChange,
-}: {
+function PropertyGroup({ group, selection, draft, onChange }: {
   group: PropertyGroupSpec;
   selection: EditorSelection;
   draft: Record<string, string>;
@@ -96,14 +91,7 @@ function PropertyGroup({
   );
 }
 
-export function PropertiesPanel({
-  selection,
-  layer,
-  ownership,
-  applying,
-  applyMessage,
-  onApply,
-}: {
+export function PropertiesPanel({ selection, layer, ownership, applying, applyMessage, onApply }: {
   selection: EditorSelection | null;
   layer: EditorLayer | null;
   ownership: EditorSourceOwnership | null;
@@ -115,7 +103,7 @@ export function PropertiesPanel({
 
   useEffect(() => {
     setDraft(initialDraft(selection));
-  }, [selection?.nodeId]);
+  }, [selection]);
 
   const changes = useMemo<VisualPropertyChange[]>(() => {
     if (!selection) return [];
@@ -128,6 +116,11 @@ export function PropertiesPanel({
 
   const changeDraft = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const reset = () => setDraft(initialDraft(selection));
+  const applyChanges = async () => {
+    if (!changes.length || applying) return;
+    await onApply(changes);
+    setDraft(initialDraft(selection));
+  };
 
   if (!selection) {
     return (
@@ -173,7 +166,7 @@ export function PropertiesPanel({
       <div className={`property-apply-bar ${changes.length ? 'dirty' : ''}`}>
         <div><strong>{changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong><span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit an enabled property above')}</span></div>
         {changes.length ? <button type="button" className="secondary" disabled={applying} onClick={reset}>Reset</button> : null}
-        <button type="button" disabled={!changes.length || applying} onClick={() => void onApply(changes)}>{applying ? 'Queueing…' : 'Apply'}</button>
+        <button type="button" disabled={!changes.length || applying} onClick={() => void applyChanges()}>{applying ? 'Queueing…' : 'Apply'}</button>
       </div>
     </aside>
   );
