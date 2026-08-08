@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { resetVisualEditorPreview } from '../editor/controller';
 import { invokeNative, isNativeHost, listenNative } from '../host/native';
 import { setPreviewSelection, subscribePreviewSelection, selectionLabel, type PreviewSelection } from './selection';
 
@@ -59,6 +60,7 @@ export function NativePreview({ url, viewport, onError }: { url: string; viewpor
         }));
         disposers.push(await listenNative<string>('monument://preview-error', onError));
       } catch (error) {
+        resetVisualEditorPreview();
         onError(String(error instanceof Error ? error.message : error));
       }
     };
@@ -71,6 +73,8 @@ export function NativePreview({ url, viewport, onError }: { url: string; viewpor
       window.removeEventListener('resize', syncBounds);
       for (const dispose of disposers) dispose();
       openedRef.current = false;
+      resetVisualEditorPreview();
+      setPreviewSelection(null);
       void invokeNative<void>('preview_close').catch(() => undefined);
     };
   }, [native, onError, syncBounds, url]);
