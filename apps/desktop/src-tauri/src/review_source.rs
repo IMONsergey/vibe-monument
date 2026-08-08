@@ -13,9 +13,9 @@ const MAX_SOURCE_FILES: usize = 80;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewSourceContext {
-    content: String,
-    files_included: usize,
-    truncated: bool,
+    pub(crate) content: String,
+    pub(crate) files_included: usize,
+    pub(crate) truncated: bool,
 }
 
 fn validate_project_id(value: &str) -> Result<(), String> {
@@ -75,6 +75,9 @@ fn git_output(git: &Path, git_dir: &Path, args: &[String]) -> Result<Vec<u8>, St
 fn secret_like_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/").to_ascii_lowercase();
     let name = normalized.rsplit('/').next().unwrap_or(&normalized);
+    if matches!(name, ".env.example" | ".env.sample" | ".env.template") {
+        return false;
+    }
     name == ".env"
         || name.starts_with(".env.")
         || name.ends_with(".pem")
@@ -146,17 +149,16 @@ fn object_text(git: &Path, git_dir: &Path, commit: &str, path: &str) -> Option<S
     String::from_utf8(bytes).ok()
 }
 
-#[tauri::command]
-pub fn timeline_review_source_context(
-    app: AppHandle,
-    project_path: String,
-    project_id: String,
-    checkpoint_id: String,
-    parent_checkpoint_id: String,
+pub(crate) fn source_context_internal(
+    app: &AppHandle,
+    project_path: &str,
+    project_id: &str,
+    checkpoint_id: &str,
+    parent_checkpoint_id: &str,
 ) -> Result<ReviewSourceContext, String> {
-    validate_project_id(&project_id)?;
-    let project_root = canonical_project(&project_path)?;
-    let connection = persistence::connection(&app)?;
+    validate_project_id(project_id)?;
+    let project_root = canonical_project(project_path)?;
+    let connection = persistence::connection(app)?;
     let stored: Option<(String, String)> = connection
         .query_row(
             "SELECT project_path, current_checkpoint_id FROM timeline_projects WHERE project_id = ?1",
@@ -183,7 +185,7 @@ pub fn timeline_review_source_context(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|error| error.to_string())?;
-    if stored_parent.as_deref() != Some(parent_checkpoint_id.as_str()) {
+    if stored_parent.as_deref() != Some(parent_checkpoint_id) {
         return Err("Fresh Review parent checkpoint changed before source context was captured".into());
     }
     let parent_commit: String = connection
@@ -199,7 +201,7 @@ pub fn timeline_review_source_context(
         .app_data_dir()
         .map_err(|error| error.to_string())?
         .join("timelines")
-        .join(&project_id)
+        .join(project_id)
         .join("repo.git");
     if !git_dir.join("HEAD").is_file() {
         return Err("Monument shadow history is unavailable for Fresh Review source context".into());
@@ -212,7 +214,7 @@ pub fn timeline_review_source_context(
 
     for path in paths {
         let Some(text) = object_text(&git, &git_dir, &current_commit, &path) else { continue; };
-        let block = format!("\n--- BEGIN FILE {path} ---\n{text}\n--- END FILE {path} ---\n");
+        let block = format!("\n--- BEGIN CURRENT FILE {path} ---\n{text}\n--- END CURRENT FILE {path} ---\n");
         if content.len().saturating_add(block.len()) > MAX_SOURCE_CONTEXT_BYTES {
             let remaining = MAX_SOURCE_CONTEXT_BYTES.saturating_sub(content.len());
             if remaining > 96 {
@@ -234,6 +236,23 @@ pub fn timeline_review_source_context(
         files_included: included,
         truncated,
     })
+}
+
+#[tauri::command]
+pub fn timeline_review_source_context(
+    app: AppHandle,
+    project_path: String,
+    project_id: String,
+    checkpoint_id: String,
+    parent_checkpoint_id: String,
+) -> Result<ReviewSourceContext, String> {
+    source_context_internal(
+        &app,
+        &project_path,
+        &project_id,
+        &checkpoint_id,
+        &parent_checkpoint_id,
+    )
 }
 
 #[cfg(test)]
