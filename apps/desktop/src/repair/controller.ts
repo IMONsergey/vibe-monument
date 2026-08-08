@@ -146,7 +146,9 @@ export async function requestBrowserRepair(record: BrowserEvidenceRecord): Promi
 }
 
 export async function requestAutoRepairIfEnabled(evidence: VerificationEvidence): Promise<boolean> {
-  if ((evidence.trigger !== 'codex-turn' && evidence.trigger !== 'visual-edit') || evidence.status !== 'failed' || evidence.turnSerial === 0) return false;
+  // The bounded automatic-repair budget is currently anchored to a Codex repair chain.
+  // Direct visual generations support explicit repair, but do not inherit/consume that automatic budget yet.
+  if (evidence.trigger !== 'codex-turn' || evidence.status !== 'failed' || evidence.turnSerial === 0) return false;
   if (!(await isAutoRepairEnabled(evidence.projectId))) return false;
   return dispatchRepair({
     projectId: evidence.projectId,
