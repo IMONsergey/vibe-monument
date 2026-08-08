@@ -13,6 +13,7 @@ import {
 } from './controller';
 import { applyVisualPropertyEdit, type VisualPropertyChange } from './intent';
 import { LayersPanel } from './LayersPanel';
+import type { VisualMarkupDecision } from './markupEditing';
 import { locateEditorSource, type EditorSourceOwnership } from './ownership';
 import { PropertiesPanel } from './PropertiesPanel';
 import type { VisualTokenEditDecision } from './tokenEditing';
@@ -80,12 +81,13 @@ export function VisualEditorLayer() {
   const applyProperties = useCallback(async (
     changes: VisualPropertyChange[],
     tokenDecision?: VisualTokenEditDecision,
+    markupDecision?: VisualMarkupDecision,
   ): Promise<boolean> => {
     if (!editor.selection || applying) return false;
     setApplying(true);
     setApplyMessage(null);
     try {
-      const result = await applyVisualPropertyEdit(editor.selection, changes, tokenDecision);
+      const result = await applyVisualPropertyEdit(editor.selection, changes, tokenDecision, markupDecision);
       if (result.mode === 'direct') {
         if (result.token) {
           const scope = result.scope === 'global-token'
@@ -95,6 +97,9 @@ export function VisualEditorLayer() {
               : 'selected element';
           const refs = result.affectedUsageCount === 1 ? '1 source ref' : `${result.affectedUsageCount} source refs`;
           setApplyMessage(`Applied directly · ${scope} · ${result.token} · ${refs} observed · ${result.sourcePath}`);
+        } else if (result.sourceLane) {
+          const lane = result.sourceLane === 'tailwind' ? 'Tailwind utility' : 'JSX inline style';
+          setApplyMessage(`Applied directly · ${lane} · ${result.ownerKind || 'static source owner'} · ${result.sourcePath}`);
         } else {
           setApplyMessage(`Applied directly · ${result.appliedCount} source change${result.appliedCount === 1 ? '' : 's'} · ${result.sourcePath}`);
         }
