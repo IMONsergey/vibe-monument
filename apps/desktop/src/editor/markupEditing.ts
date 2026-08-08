@@ -78,12 +78,16 @@ async function competingCssOwnership(
   projectPath: string,
   selection: EditorSelection,
   change: VisualPropertyChange,
-): Promise<CompetingCssPlan | null> {
+): Promise<CompetingCssPlan> {
   return invokeNative<CompetingCssPlan>('project_source_transaction_preview', {
     projectPath,
     selection: cssSelection(selection),
     changes: [markupChange(change)],
-  }).catch(() => null);
+  }).catch((error) => ({
+    mode: 'assisted' as const,
+    reason: `CSS ownership preflight unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    operations: [],
+  }));
 }
 
 export async function probeVisualMarkupEdit(
@@ -94,16 +98,24 @@ export async function probeVisualMarkupEdit(
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) return null;
 
-  // CSS ownership outranks markup ownership. If the existing M2.1 resolver sees a real or
-  // assisted CSS owner, JSX/Tailwind must not race it for the same computed property.
+  // CSS ownership outranks markup ownership. Unknown CSS ownership also fails closed: a native
+  // preflight error must never be interpreted as proof that no CSS owner exists.
   const cssPlan = await competingCssOwnership(projectPath, selection, change);
-  if (cssPlan && cssPlan.mode !== 'codex') return null;
+  if (cssPlan.mode !== 'codex') return {
+    mode: 'codex',
+    reason: cssPlan.reason || 'CSS ownership is present or could not be excluded safely.',
+    operation: null,
+  };
 
   return invokeNative<VisualMarkupEditProbe>('project_markup_edit_probe', {
     projectPath,
     selection: markupSelection(selection),
     change: markupChange(change),
-  }).catch(() => null);
+  }).catch((error) => ({
+    mode: 'codex' as const,
+    reason: `JSX/Tailwind ownership preflight unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    operation: null,
+  }));
 }
 
 export async function previewVisualMarkupTransaction(
