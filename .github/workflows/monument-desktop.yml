@@ -38,7 +38,7 @@ jobs:
         run: npm run build
 
   native-macos:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     defaults:
       run:
         working-directory: apps/desktop/src-tauri
@@ -48,5 +48,9 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-      - name: Test native Tauri host
-        run: cargo test --all-targets
+      - name: Test native Tauri host on Intel x86_64
+        run: |
+          rustc -vV
+          uname -m
+          test "$(uname -m)" = "x86_64"
+          cargo test --all-targets
