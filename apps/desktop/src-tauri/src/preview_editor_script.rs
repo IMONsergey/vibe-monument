@@ -13,6 +13,7 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
   let hoverOverlay = null;
   let selectedOverlay = null;
   let selectedId = null;
+  let lastCanvasHoverId = null;
 
   function invoke() {
     return window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
@@ -173,10 +174,7 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
     const rect = element.getBoundingClientRect();
     const tag = element.tagName.toLowerCase();
     return {
-      id: nodeId(element),
-      parentId,
-      depth,
-      tag,
+      id: nodeId(element), parentId, depth, tag,
       kind: kindOf(element, style),
       role: element.getAttribute('role'),
       name: accessibleName(element),
@@ -225,9 +223,7 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
       url: location.href,
       capturedAt: Date.now(),
       viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
-      nodes,
-      rootIds,
-      truncated,
+      nodes, rootIds, truncated,
     };
   }
 
@@ -249,46 +245,21 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
       rect: rectPayload(rect),
       parent: parent ? { tag: parent.tagName.toLowerCase(), selector: selectorFor(parent) } : null,
       styles: {
-        display: style.display,
-        position: style.position,
-        width: style.width,
-        height: style.height,
-        minWidth: style.minWidth,
-        maxWidth: style.maxWidth,
-        minHeight: style.minHeight,
-        maxHeight: style.maxHeight,
-        marginTop: style.marginTop,
-        marginRight: style.marginRight,
-        marginBottom: style.marginBottom,
-        marginLeft: style.marginLeft,
-        paddingTop: style.paddingTop,
-        paddingRight: style.paddingRight,
-        paddingBottom: style.paddingBottom,
-        paddingLeft: style.paddingLeft,
-        gap: style.gap,
-        rowGap: style.rowGap,
-        columnGap: style.columnGap,
-        flexDirection: style.flexDirection,
-        flexWrap: style.flexWrap,
-        alignItems: style.alignItems,
-        justifyContent: style.justifyContent,
-        gridTemplateColumns: style.gridTemplateColumns,
-        gridTemplateRows: style.gridTemplateRows,
-        color: style.color,
-        backgroundColor: style.backgroundColor,
-        backgroundImage: style.backgroundImage,
-        fontFamily: style.fontFamily,
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
-        lineHeight: style.lineHeight,
-        letterSpacing: style.letterSpacing,
-        textAlign: style.textAlign,
-        border: style.border,
-        borderRadius: style.borderRadius,
-        boxShadow: style.boxShadow,
-        opacity: style.opacity,
-        overflow: style.overflow,
-        zIndex: style.zIndex,
+        display: style.display, position: style.position,
+        width: style.width, height: style.height,
+        minWidth: style.minWidth, maxWidth: style.maxWidth,
+        minHeight: style.minHeight, maxHeight: style.maxHeight,
+        marginTop: style.marginTop, marginRight: style.marginRight, marginBottom: style.marginBottom, marginLeft: style.marginLeft,
+        paddingTop: style.paddingTop, paddingRight: style.paddingRight, paddingBottom: style.paddingBottom, paddingLeft: style.paddingLeft,
+        gap: style.gap, rowGap: style.rowGap, columnGap: style.columnGap,
+        flexDirection: style.flexDirection, flexWrap: style.flexWrap,
+        alignItems: style.alignItems, justifyContent: style.justifyContent,
+        gridTemplateColumns: style.gridTemplateColumns, gridTemplateRows: style.gridTemplateRows,
+        color: style.color, backgroundColor: style.backgroundColor, backgroundImage: style.backgroundImage,
+        fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight,
+        lineHeight: style.lineHeight, letterSpacing: style.letterSpacing, textAlign: style.textAlign,
+        border: style.border, borderRadius: style.borderRadius, boxShadow: style.boxShadow,
+        opacity: style.opacity, overflow: style.overflow, zIndex: style.zIndex,
       },
     };
   }
@@ -311,24 +282,33 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
 
   function setActive(next) {
     active = Boolean(next);
+    document.documentElement.style.cursor = active ? 'default' : '';
     if (active) emitTree();
     else {
       clearTimeout(treeTimer);
+      lastCanvasHoverId = null;
       if (hoverOverlay) hoverOverlay.style.display = 'none';
+      if (selectedOverlay) selectedOverlay.style.display = 'none';
     }
     return active;
   }
 
-  function select(id) {
-    const element = elementById.get(id);
-    if (!(element instanceof Element) || !element.isConnected) {
-      scheduleTree();
-      return false;
-    }
+  function selectElement(element) {
+    if (!(element instanceof Element) || !element.isConnected || editorNode(element)) return false;
+    const id = nodeId(element);
     selectedId = id;
     element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     requestAnimationFrame(() => draw(selectedOverlay, element));
     send('selection', selectionPayload(element));
+    return true;
+  }
+
+  function select(id) {
+    const element = elementById.get(id);
+    if (!selectElement(element)) {
+      scheduleTree();
+      return false;
+    }
     return true;
   }
 
@@ -345,6 +325,40 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
     return true;
   }
 
+  function elementAtPoint(x, y) {
+    const element = document.elementFromPoint(x, y);
+    return element instanceof Element && !editorNode(element) ? element : null;
+  }
+
+  function onCanvasMove(event) {
+    if (!active) return;
+    const element = elementAtPoint(event.clientX, event.clientY);
+    if (!element) return;
+    const id = nodeId(element);
+    draw(hoverOverlay, element);
+    if (id !== lastCanvasHoverId) {
+      lastCanvasHoverId = id;
+      send('hover', { nodeId: id });
+    }
+  }
+
+  function onCanvasLeave() {
+    if (!active) return;
+    lastCanvasHoverId = null;
+    if (hoverOverlay) hoverOverlay.style.display = 'none';
+    send('hover', { nodeId: null });
+  }
+
+  function onCanvasClick(event) {
+    if (!active) return;
+    const element = elementAtPoint(event.clientX, event.clientY);
+    if (!element) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    selectElement(element);
+  }
+
   const mutationObserver = new MutationObserver(scheduleTree);
   function observe() {
     if (!document.documentElement) return;
@@ -353,6 +367,9 @@ pub const PREVIEW_EDITOR_SCRIPT: &str = r#"
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observe, { once: true });
   else observe();
 
+  document.addEventListener('pointermove', onCanvasMove, true);
+  document.addEventListener('pointerleave', onCanvasLeave, true);
+  document.addEventListener('click', onCanvasClick, true);
   window.addEventListener('scroll', () => {
     if (selectedId) draw(selectedOverlay, elementById.get(selectedId));
   }, true);
