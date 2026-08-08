@@ -228,13 +228,35 @@ Primary actions include:
 
 When all blocking gates pass, the button can show `Ship ✓`.
 
-## What `Ship ✓` does not yet mean
+## Local Git handoff
 
-In the current gate, `Ship ✓` means the configured Monument evidence policy for the current saved version has no blocking findings.
+A ready Ship state can now create an explicit **local Git commit**.
 
-It does **not yet** mean:
+The flow is deliberately human-controlled:
 
-- a commit has been created;
+1. Monument computes the current Git plan.
+2. The exact changed files are shown before staging.
+3. Existing staged changes block Monument Ship so user staging is never mixed silently.
+4. The user reviews/edits the commit message.
+5. `Commit locally` stages only the exact displayed paths via `git add -- <paths>`.
+6. Repository commit hooks run normally.
+7. On commit-hook/commit failure, Monument restores the previously-clean index while keeping working-tree changes.
+8. After commit, Monument reports the commit SHA and any remaining working-tree changes.
+
+Path enumeration is machine-safe and NUL-delimited, including spaces, Unicode and untracked files.
+
+Monument does not use `git add .`, does not use `--no-verify`, and does not push implicitly.
+
+## What `Ship ✓` means
+
+`Ship ✓` means the configured Monument evidence policy for the **exact current saved generation** has no blocking requirements.
+
+It proves only the evidence lanes that actually ran and passed under the current policy. It is not a universal correctness claim.
+
+After `Ship ✓`, the user may explicitly create a local commit through the Git handoff above.
+
+It does **not** mean:
+
 - changes have been pushed;
 - a PR has been opened;
 - deployment succeeded;
@@ -242,17 +264,18 @@ It does **not yet** mean:
 - every possible user flow was tested;
 - every accessibility criterion was audited.
 
-Those remain separate future handoff/deployment gates.
+Those remain separate explicit network/deployment/coverage gates.
 
-## Next handoff
+## Next network handoff
 
-After this gate stabilizes, ready Ship state should connect to a human Git flow:
+Future Ship work may add explicit actions for:
 
-- review changed files;
-- Save version / commit;
-- push branch;
-- create PR or hand off the exact diff;
-- preserve evidence/review metadata as a local release record.
+- push the reviewed branch;
+- create a PR or hand off the exact diff;
+- attach/localize evidence metadata for the handoff;
+- deployment gates.
+
+These actions must remain separate and explicit because they create remote/network side effects.
 
 The user should still see human actions, while advanced Git details remain progressively disclosed.
 
