@@ -71,9 +71,12 @@ test('token editing commands are main-webview only and separately previewed befo
   assert.ok(tokenClient.indexOf("'project_token_transaction_preview'") < tokenClient.indexOf("'project_token_transaction_commit'"));
 });
 
-test('token scope discovery protects exact token names and exposes bounded blast radius', () => {
+test('token scope discovery protects exact token names and counts valid var trivia conservatively', () => {
   assert.ok(tokenScope.includes('exact_usage_offsets'));
   assert.ok(tokenScope.includes('token_boundary'));
+  assert.ok(tokenScope.includes('ascii_var_function_at'));
+  assert.ok(tokenScope.includes('skip_var_trivia'));
+  assert.ok(tokenScope.includes('counts_valid_var_whitespace_comments_and_case'));
   assert.ok(tokenScope.includes('definition_count'));
   assert.ok(tokenScope.includes('usage_count'));
   assert.ok(tokenScope.includes('Never mutate it implicitly'));
@@ -84,10 +87,12 @@ test('Properties exposes explicit instance local global and Codex choices', () =
     'Token-backed',
     'Change scope',
     'This element',
+    'unique live ID',
     'Local scope',
     'Global token',
     'Use Codex',
-    'I understand this changes the shared token',
+    'I understand this changes a global token',
+    'live impact may be broader through cascade and inheritance',
     'property-token-diff',
     'Inspecting token ownership',
   ]) assert.ok(properties.includes(token), `Properties token UX missing ${token}`);
@@ -96,9 +101,19 @@ test('Properties exposes explicit instance local global and Codex choices', () =
   assert.ok(properties.includes('defaultTokenDecision'));
   assert.ok(properties.includes('tokenDecisionRequiresGlobalConfirmation'));
   assert.ok(properties.includes('!definition.conditional'));
+  assert.ok(properties.includes('selectedDefinition?.scope === \'global\''));
   assert.ok(properties.includes('disabled={!changes.length || applying || tokenLoading || globalConfirmationRequired}'));
   assert.ok(styles.includes('.property-token-card'));
   assert.ok(styles.includes('.property-token-confirm.required'));
+});
+
+test('global token confirmation and blast radius use conservative independent evidence', () => {
+  assert.ok(tokenClient.includes("'project_token_scope_inspect'"));
+  assert.ok(tokenClient.includes('Math.max(probe.usageCount, scope.usageCount)'));
+  assert.ok(tokenClient.includes('probe.truncated || scope.truncated'));
+  assert.ok(tokenClient.includes("decision.definition.scope === 'global'"));
+  assert.ok(!tokenClient.includes('probe.usageCount > 1\n    && !decision.confirmSharedGlobal'));
+  assert.ok(tokenClient.includes('Math.max(commit.affectedUsageCount, scope.usageCount)'));
 });
 
 test('token source mutations enter the same Timeline evidence chain as literal direct edits', () => {
@@ -113,7 +128,7 @@ test('token source mutations enter the same Timeline evidence chain as literal d
   assert.ok(intent.includes('markBrowserEvidenceStale'));
   assert.ok(intent.includes('recordSourceTransactionCheckpoint'));
   assert.ok(intent.includes("tokenDecision?.mode === 'codex'"));
-  assert.ok(visualLayer.includes('affectedUsageCount'));
+  assert.ok(visualLayer.includes('source refs'));
   assert.ok(visualLayer.includes("result.scope === 'global-token'"));
 });
 
