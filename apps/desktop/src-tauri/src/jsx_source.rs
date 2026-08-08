@@ -145,8 +145,7 @@ fn matching_brace(bytes: &[u8], open: usize, hard_end: usize) -> Result<usize, S
             continue;
         }
         if byte == b'/' {
-            // A regex/division expression needs a full JavaScript parser to classify safely.
-            // This bounded parser refuses the whole opening tag instead of guessing.
+            // Regex-vs-division needs a real JS parser. Refuse the bounded JSX tag instead of guessing.
             return Err("JSX expression contains unsupported slash syntax".into());
         }
         if matches!(byte, b'\'' | b'"' | b'`') {
@@ -292,21 +291,94 @@ pub fn parse_opening_tag_at(content: &str, start: usize) -> Option<JsxOpeningTag
     }
 }
 
+fn skip_closing_tag(bytes: &[u8], start: usize) -> usize {
+    let mut cursor = start + 2;
+    while cursor < bytes.len() && bytes[cursor] != b'>' {
+        cursor += 1;
+    }
+    (cursor + 1).min(bytes.len())
+}
+
+/// Bounded JSX source discovery deliberately prefers false negatives to lexical false positives.
+/// Strings, templates and comments are never parsed as JSX. A bare `/` in JS code is ambiguous
+/// between division and a regex literal without a real JavaScript parser, so the entire file is
+/// refused for deterministic markup ownership when such syntax is encountered outside a parsed tag.
 pub fn opening_tags(content: &str) -> Vec<JsxOpeningTag> {
     let bytes = content.as_bytes();
     let mut tags = Vec::new();
     let mut cursor = 0usize;
+    let mut quote: Option<u8> = None;
+    let mut escaped = false;
+    let mut line_comment = false;
+    let mut block_comment = false;
+
     while cursor < bytes.len() {
-        if bytes[cursor] != b'<' {
+        let byte = bytes[cursor];
+        if line_comment {
+            if byte == b'\n' {
+                line_comment = false;
+            }
             cursor += 1;
             continue;
         }
-        if let Some(tag) = parse_opening_tag_at(content, cursor) {
-            cursor = tag.end.max(cursor + 1);
-            tags.push(tag);
-        } else {
+        if block_comment {
+            if byte == b'*' && bytes.get(cursor + 1) == Some(&b'/') {
+                block_comment = false;
+                cursor += 2;
+                continue;
+            }
             cursor += 1;
+            continue;
         }
+        if let Some(active) = quote {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == active {
+                quote = None;
+            }
+            cursor += 1;
+            continue;
+        }
+        if matches!(byte, b'\'' | b'"' | b'`') {
+            quote = Some(byte);
+            cursor += 1;
+            continue;
+        }
+        if byte == b'/' && bytes.get(cursor + 1) == Some(&b'/') {
+            line_comment = true;
+            cursor += 2;
+            continue;
+        }
+        if byte == b'/' && bytes.get(cursor + 1) == Some(&b'*') {
+            block_comment = true;
+            cursor += 2;
+            continue;
+        }
+        if byte == b'<' && bytes.get(cursor + 1) == Some(&b'/') {
+            cursor = skip_closing_tag(bytes, cursor);
+            continue;
+        }
+        if byte == b'<' {
+            if let Some(tag) = parse_opening_tag_at(content, cursor) {
+                cursor = tag.end.max(cursor + 1);
+                tags.push(tag);
+                continue;
+            }
+            cursor += 1;
+            continue;
+        }
+        if byte == b'/' {
+            // A lexical false-positive here could turn a string/regex-shaped fragment into write
+            // authority. Refuse the file until M2.3 grows a full JS/TS parser-backed ownership lane.
+            return Vec::new();
+        }
+        cursor += 1;
+    }
+
+    if quote.is_some() || block_comment {
+        return Vec::new();
     }
     tags
 }
@@ -342,6 +414,41 @@ mod tests {
     #[test]
     fn refuses_unbounded_slash_expression_instead_of_guessing() {
         let source = r#"<div id="hero" data-value={foo / 2} className="gap-[16px]" />"#;
+        assert!(opening_tags(source).is_empty());
+    }
+
+    #[test]
+    fn ignores_jsx_shaped_strings_comments_and_templates() {
+        let source = r#"
+          const a = "<div id=\"hero\" className=\"gap-[16px]\"/>";
+          const b = '<div id="hero" className="gap-[16px]"/>';
+          const c = `<div id="hero" className="gap-[16px]"/>`;
+          // <div id="hero" className="gap-[16px]"/>
+          /* <div id="hero" className="gap-[16px]"/> */
+          export const App = () => <div id="real" className="gap-[16px]"/>;
+        "#;
+        let tags = opening_tags(source);
+        assert_eq!(tags.len(), 1);
+        assert_eq!(literal_attr(&tags[0], "id"), Some("real"));
+    }
+
+    fn literal_attr<'a>(tag: &'a JsxOpeningTag, name: &str) -> Option<&'a str> {
+        match &tag.attribute(name)?.value {
+            JsxAttributeValue::Literal { value, .. } => Some(value.as_str()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn closing_tags_do_not_hide_later_duplicate_opening_tags() {
+        let source = r#"<div id="hero"/><span></span><div id="hero"/>"#;
+        let tags = opening_tags(source);
+        assert_eq!(tags.iter().filter(|tag| literal_attr(tag, "id") == Some("hero")).count(), 2);
+    }
+
+    #[test]
+    fn bare_slash_syntax_refuses_the_file_instead_of_risking_regex_false_positive() {
+        let source = r#"const re = /<div id="hero" className="gap-[16px]"\/>/; export const App = () => <div id="real"/>;"#;
         assert!(opening_tags(source).is_empty());
     }
 }
