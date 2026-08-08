@@ -110,6 +110,7 @@ export function tokenDecisionKey(decision: VisualTokenEditDecision): string {
 }
 
 export function defaultTokenDecision(probe: VisualTokenEditProbe): VisualTokenEditDecision {
+  if (probe.truncated) return { mode: 'codex' };
   if (probe.instanceEligible) return { mode: 'instance' };
   const local = probe.definitions.find((definition) => definition.scope === 'scoped' && definition.selectedScope);
   if (local) return { mode: 'token', definition: local, confirmSharedGlobal: false };
