@@ -2,7 +2,7 @@ mod browser_evidence;
 mod codex_runtime;
 mod git_ship;
 mod jsx_source;
-mod markup_transaction;
+mod markup_transaction_v2;
 mod persistence;
 mod preview_editor_bridge;
 mod preview_editor_script;
@@ -27,7 +27,7 @@ mod timeline_git_contract_tests;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
 use git_ship::{git_ship_commit, git_ship_plan};
-use markup_transaction::{project_markup_edit_probe, project_markup_transaction_commit, project_markup_transaction_preview};
+use markup_transaction_v2::{project_markup_edit_probe, project_markup_transaction_commit, project_markup_transaction_preview};
 use persistence::{state_get, state_set};
 use preview_editor_bridge::{preview_editor_emit, preview_editor_hover, preview_editor_request_tree, preview_editor_select, preview_editor_set_active, PreviewEditorBridgeRuntime};
 use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_collect_browser_evidence, preview_install_browser_evidence, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
