@@ -7,11 +7,12 @@ import {
 } from '../queue/controller';
 import { checkpointVisualSourceTransaction, readTimelineStatus } from '../timeline/controller';
 import {
-  isSourceTransactionOrchestrationBlocked,
-  isSourceTransactionValidationBusy,
-  markSourceTransactionDirty,
-  recordSourceTransactionCheckpoint,
-} from './transactionState';
+  commitVisualContentTransaction,
+  isVisualContentChange,
+  previewVisualContentTransaction,
+  type VisualContentCommit,
+  type VisualContentDecision,
+} from './contentEditing';
 import {
   commitVisualMarkupTransaction,
   previewVisualMarkupTransaction,
@@ -24,6 +25,12 @@ import {
   type VisualTokenEditDecision,
   type VisualTokenTransactionCommit,
 } from './tokenEditing';
+import {
+  isSourceTransactionOrchestrationBlocked,
+  isSourceTransactionValidationBusy,
+  markSourceTransactionDirty,
+  recordSourceTransactionCheckpoint,
+} from './transactionState';
 import type { EditorSelection } from './types';
 
 export interface VisualPropertyChange {
@@ -38,6 +45,8 @@ export interface VisualEditQueuedResult {
   paused: boolean;
 }
 
+export type VisualSourceLane = 'tailwind' | 'jsx-style' | 'jsx-content' | null;
+
 export interface VisualEditApplyResult {
   projectId: string;
   mode: 'direct' | 'codex';
@@ -51,7 +60,7 @@ export interface VisualEditApplyResult {
   token: string | null;
   scope: string | null;
   affectedUsageCount: number;
-  sourceLane: 'tailwind' | 'jsx-style' | null;
+  sourceLane: VisualSourceLane;
   ownerKind: string | null;
 }
 
@@ -76,18 +85,30 @@ interface SourceTransactionCommit {
 }
 
 const MAX_CHANGES = 24;
-const MAX_VALUE = 300;
+const MAX_STYLE_VALUE = 300;
+const MAX_CONTENT_TEXT = 4_800;
+const MAX_CONTENT_ATTRIBUTE = 800;
 
-function clean(value: string, limit = MAX_VALUE): string {
+function cleanStyle(value: string, limit = MAX_STYLE_VALUE): string {
   return value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function cleanContent(value: string, limit: number): string {
+  return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, limit);
+}
+
+function boundedValue(property: string, value: string): string {
+  if (property === 'textContent') return cleanContent(value, MAX_CONTENT_TEXT);
+  if (isVisualContentChange({ property, before: '', after: value })) return cleanContent(value, MAX_CONTENT_ATTRIBUTE);
+  return cleanStyle(value);
 }
 
 function safeChanges(changes: VisualPropertyChange[]): VisualPropertyChange[] {
   return changes.slice(0, MAX_CHANGES).map((change) => ({
-    property: clean(change.property, 80),
-    before: clean(change.before),
-    after: clean(change.after),
-  })).filter((change) => change.property && change.after && change.before !== change.after);
+    property: cleanStyle(change.property, 80),
+    before: boundedValue(change.property, change.before),
+    after: boundedValue(change.property, change.after),
+  })).filter((change) => change.property && change.after !== change.before);
 }
 
 function instruction(selection: EditorSelection, changes: VisualPropertyChange[]): string {
@@ -98,15 +119,15 @@ function instruction(selection: EditorSelection, changes: VisualPropertyChange[]
     '',
     `Update the selected live <${selection.tag}> element in the real project source.`,
     'Requested property changes:',
-    ...safe.map((change) => `- ${change.property}: ${change.before || '[unset]'} → ${change.after}`),
+    ...safe.map((change) => `- ${change.property}: ${change.before || '[unset]'} → ${change.after || '[empty]'}`),
     '',
     'Editing contract:',
     '- Source code is authoritative. Do not solve this by injecting temporary runtime styles or editor-only overrides.',
-    '- Inspect the owning source/component and preserve the project’s existing styling system, tokens and abstractions.',
-    '- Prefer an existing design token, CSS variable, utility/class convention or component prop when it represents the requested value correctly.',
-    '- Keep the edit scoped to the selected element and avoid unrelated refactors.',
-    '- Preserve responsive behavior unless the requested property explicitly requires changing it.',
-    '- If the runtime element maps ambiguously to source, investigate before editing rather than guessing.',
+    '- Inspect the owning source/component and preserve the project’s existing styling/content abstractions.',
+    '- Prefer existing design tokens, utility conventions and semantic DOM ownership when they are actually proven.',
+    '- Keep the edit scoped to the selected source owner and avoid unrelated refactors.',
+    '- Preserve responsive and accessibility behavior unless the request explicitly changes it.',
+    '- If runtime-to-source ownership is ambiguous, investigate before editing rather than guessing.',
     '- Normal Codex approvals remain authoritative.',
   ].join('\n');
 }
@@ -129,7 +150,7 @@ function directTransactionTitle(selection: EditorSelection, changes: VisualPrope
 function directTransactionDetail(path: string, changes: VisualPropertyChange[], prefix = 'Direct deterministic source transaction'): string {
   return [
     `${prefix} in ${path}.`,
-    ...changes.slice(0, MAX_CHANGES).map((change) => `${change.property}: ${change.before || '[unset]'} → ${change.after}`),
+    ...changes.slice(0, MAX_CHANGES).map((change) => `${change.property}: ${change.before || '[unset]'} → ${change.after || '[empty]'}`),
   ].join(' · ');
 }
 
@@ -161,12 +182,12 @@ async function finishDirectVisualEdit(input: {
   project: Awaited<ReturnType<typeof inspectProject>>;
   selection: EditorSelection;
   changes: VisualPropertyChange[];
-  commit: SourceTransactionCommit | VisualTokenTransactionCommit | VisualMarkupTransactionCommit;
+  commit: SourceTransactionCommit | VisualTokenTransactionCommit | VisualMarkupTransactionCommit | VisualContentCommit;
   reason: string;
   token?: string | null;
   scope?: string | null;
   affectedUsageCount?: number;
-  sourceLane?: 'tailwind' | 'jsx-style' | null;
+  sourceLane?: VisualSourceLane;
   ownerKind?: string | null;
 }): Promise<VisualEditApplyResult> {
   const { project, selection, changes, commit, reason } = input;
@@ -179,9 +200,11 @@ async function finishDirectVisualEdit(input: {
   const ownerKind = input.ownerKind ?? ('ownerKind' in commit ? commit.ownerKind : null);
   const detailPrefix = token
     ? `Direct ${scope || 'token'} source transaction for ${token}; source refs ${affectedUsageCount}`
-    : sourceLane
-      ? `Direct ${sourceLane} transaction · ${ownerKind || 'static source owner'}`
-      : 'Direct deterministic source transaction';
+    : sourceLane === 'jsx-content'
+      ? `Direct JSX content transaction · ${ownerKind || 'static content owner'}`
+      : sourceLane
+        ? `Direct ${sourceLane} transaction · ${ownerKind || 'static source owner'}`
+        : 'Direct deterministic source transaction';
   const checkpoint = await checkpointVisualSourceTransaction({
     project,
     title: directTransactionTitle(selection, changes, token || sourceLane),
@@ -266,6 +289,7 @@ export async function applyVisualPropertyEdit(
   changes: VisualPropertyChange[],
   tokenDecision?: VisualTokenEditDecision,
   markupDecision?: VisualMarkupDecision,
+  contentDecision?: VisualContentDecision,
 ): Promise<VisualEditApplyResult> {
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) throw new Error('Open a project before applying visual changes.');
@@ -279,6 +303,9 @@ export async function applyVisualPropertyEdit(
   const bounded = safeChanges(changes);
   if (!bounded.length) throw new Error('No visual property changes to apply.');
 
+  if (contentDecision === 'codex') {
+    return codexResult(selection, bounded, 'Static JSX content ownership was not selected or could not be proven.');
+  }
   if (tokenDecision?.mode === 'codex') {
     return codexResult(selection, bounded, 'User selected the source-aware Codex route for this token-backed edit.');
   }
@@ -292,6 +319,28 @@ export async function applyVisualPropertyEdit(
   }
   if (timelineStatus.dirty) {
     return codexResult(selection, bounded, 'Current source differs from the active Timeline generation; direct editing is disabled until provenance is resolved.');
+  }
+
+  if (contentDecision === 'direct') {
+    const plan = await previewVisualContentTransaction(project.rootPath, selection, bounded).catch((error) => ({
+      mode: 'codex' as const,
+      reason: `Content transaction preflight unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      operations: [],
+    }));
+    if (plan.mode === 'deterministic' && plan.operations.length === bounded.length) {
+      const committed = await commitVisualContentTransaction(project.rootPath, selection, bounded);
+      const ownerKinds = [...new Set(plan.operations.map((operation) => operation.ownerKind))];
+      return finishDirectVisualEdit({
+        project,
+        selection,
+        changes: bounded,
+        commit: committed,
+        reason: plan.reason,
+        sourceLane: 'jsx-content',
+        ownerKind: ownerKinds.join(' + '),
+      });
+    }
+    return codexResult(selection, bounded, plan.reason);
   }
 
   if (tokenDecision && bounded.length === 1) {
@@ -353,13 +402,7 @@ export async function applyVisualPropertyEdit(
 
   if (plan.mode === 'deterministic' && plan.operations.length === bounded.length) {
     const committed = await commitDirectSourceEdit(project.rootPath, selection, bounded);
-    return finishDirectVisualEdit({
-      project,
-      selection,
-      changes: bounded,
-      commit: committed,
-      reason: plan.reason,
-    });
+    return finishDirectVisualEdit({ project, selection, changes: bounded, commit: committed, reason: plan.reason });
   }
 
   return codexResult(selection, bounded, plan.reason);

@@ -1,5 +1,6 @@
 mod browser_evidence;
 mod codex_runtime;
+mod content_transaction;
 mod git_ship;
 mod jsx_source;
 mod markup_conflict_guard;
@@ -27,11 +28,12 @@ mod verification_runtime;
 mod timeline_git_contract_tests;
 
 use codex_runtime::{codex_protocol_probe, codex_send, codex_start, codex_status, codex_stop, CodexRuntime};
+use content_transaction::{project_content_edit_probe, project_content_transaction_commit, project_content_transaction_preview};
 use git_ship::{git_ship_commit, git_ship_plan};
 use markup_conflict_guard::project_markup_conflict_guard;
 use markup_transaction_hardened::{project_markup_edit_probe, project_markup_transaction_commit, project_markup_transaction_preview};
 use persistence::{state_get, state_set};
-use preview_editor_bridge::{preview_editor_emit, preview_editor_hover, preview_editor_request_tree, preview_editor_select, preview_editor_set_active, PreviewEditorBridgeRuntime};
+use preview_editor_bridge::{preview_editor_emit, preview_editor_hover, preview_editor_request_content, preview_editor_request_tree, preview_editor_select, preview_editor_set_active, PreviewEditorBridgeRuntime};
 use preview_runtime::{preview_clear_browser_evidence, preview_close, preview_collect_browser_evidence, preview_install_browser_evidence, preview_open, preview_reload, preview_set_bounds, preview_set_inspect};
 use process_runtime::{runtime_start, runtime_status, runtime_stop, ProcessRuntime};
 use project_runtime::{project_inspect, project_open};
@@ -75,6 +77,9 @@ pub fn run() {
             project_markup_conflict_guard,
             project_markup_transaction_preview,
             project_markup_transaction_commit,
+            project_content_edit_probe,
+            project_content_transaction_preview,
+            project_content_transaction_commit,
             runtime_start,
             runtime_status,
             runtime_stop,
@@ -89,6 +94,7 @@ pub fn run() {
             preview_editor_emit,
             preview_editor_set_active,
             preview_editor_request_tree,
+            preview_editor_request_content,
             preview_editor_select,
             preview_editor_hover,
             verification_plan,

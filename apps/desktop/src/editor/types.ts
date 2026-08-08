@@ -34,15 +34,25 @@ export interface EditorTreeSnapshot {
   truncated: boolean;
 }
 
+export interface EditorContentAttributes {
+  ariaLabel: string;
+  title: string;
+  alt: string;
+  placeholder: string;
+}
+
 export interface EditorSelection extends PreviewSelection {
   nodeId: string;
   directText: string;
   directTextTruncated: boolean;
+  contentAttributes: EditorContentAttributes;
+  contentReady: boolean;
 }
 
 export type EditorBridgeMessage =
   | { kind: 'tree'; payload: unknown }
   | { kind: 'selection'; payload: unknown }
+  | { kind: 'content'; payload: unknown }
   | { kind: 'hover'; payload: unknown }
   | { kind: 'ready'; payload: unknown };
 
