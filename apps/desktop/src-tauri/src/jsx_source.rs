@@ -398,7 +398,7 @@ mod tests {
             other => panic!("unexpected id attribute {other:?}"),
         }
         assert!(matches!(
-            tag.attribute("style").expect("style").value,
+            &tag.attribute("style").expect("style").value,
             JsxAttributeValue::Expression { .. }
         ));
     }
