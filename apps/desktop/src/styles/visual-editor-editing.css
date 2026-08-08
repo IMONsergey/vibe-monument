@@ -2,12 +2,17 @@
 .property-field.editable { background: rgba(255,255,255,.78); }
 .property-field.editable:hover { border-color: rgba(24,24,22,.2); }
 .property-field.editable:focus-within { border-color: rgba(24,24,22,.34); box-shadow: 0 0 0 2px rgba(24,24,22,.035); }
-.property-field.readonly { background: rgba(24,24,22,.025); }
-.property-field.readonly input { color: var(--muted); cursor: default; }
 .property-field.dirty { border-color: rgba(120,144,0,.38); background: rgba(217,245,106,.13); }
 .property-field { position: relative; }
 .property-dirty-dot { position: absolute; right: 4px; top: 4px; width: 4px; height: 4px; border-radius: 50%; background: #8ba515; pointer-events: none; }
 .property-field.dirty input { padding-right: 12px; }
+
+.property-content-group { display: grid; gap: 7px; }
+.property-text-field { display: grid; gap: 5px; }
+.property-text-field > span { color: var(--muted); font-size: 7.8px; }
+.property-text-field textarea { min-height: 64px; width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,.78); padding: 7px 8px; outline: none; color: var(--ink); font: inherit; font-size: 9px; line-height: 1.4; }
+.property-text-field textarea:focus { border-color: rgba(24,24,22,.34); box-shadow: 0 0 0 2px rgba(24,24,22,.035); }
+.property-text-field.dirty textarea { border-color: rgba(120,144,0,.38); background: rgba(217,245,106,.13); }
 
 .property-source-card { margin: 0 9px 9px; padding: 9px; display: grid; gap: 5px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.4); }
 .property-source-card.likely { border-color: rgba(45,121,84,.2); background: rgba(45,121,84,.035); }
