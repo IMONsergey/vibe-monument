@@ -1,10 +1,12 @@
 # Monument build roadmap
 
-The roadmap is ordered by **user-visible capability gates**, not by how many internal subsystems exist. Monument should get simpler to use as the engine underneath becomes more capable.
+This roadmap is ordered by **user-visible product gates**. Monument should feel simpler as the engineering control plane underneath becomes more capable.
 
-## Shipped foundation — Product-first native core
+Canonical current context lives in [`MASTER_PRODUCT_CONTEXT.md`](MASTER_PRODUCT_CONTEXT.md). Deep future Visual Editor design lives in [`VISUAL_EDITOR_SPEC.md`](VISUAL_EDITOR_SPEC.md).
 
-Implemented and verified on macOS CI:
+## Shipped — Product-first native core
+
+Implemented, CI-verified and available in the Intel alpha line:
 
 - React + TypeScript + Vite production shell;
 - Tauri 2 macOS host;
@@ -14,89 +16,151 @@ Implemented and verified on macOS CI:
 - managed local dev runtime with process-group cleanup;
 - real local preview URL discovery;
 - local SQLite state;
-- real Codex `app-server` lifecycle;
+- real Codex App Server lifecycle;
 - real thread/task projection and streamed turns;
-- no production fallback to decorative mock data.
+- no production fallback to decorative mock product data.
 
-## Shipped gate — Codex protocol + auth
-
-Implemented and verified on macOS CI:
+## Shipped — Codex protocol + auth
 
 - bidirectional JSON-RPC;
 - current turn text contract;
 - bounded retry for App Server saturation;
 - active-turn interruption;
-- command execution approvals;
-- file-change approvals;
-- granular permission approvals;
+- command/file/permission approvals;
 - inline `request_user_input`;
-- safe handling of unknown/unsupported server requests;
+- safe handling of unsupported server requests;
 - Codex-managed ChatGPT login recovery;
 - account/plan state;
 - actual Codex version detection;
-- installed-binary JSON Schema compatibility probe;
-- human-facing protocol surfaces rather than raw JSON.
+- installed-binary JSON Schema compatibility probe.
 
-## Current gate — Select / Inspect (`0.2.0-alpha.3`)
-
-Implemented in the current release candidate:
+## Shipped — Live Select / Inspect
 
 - native child WKWebView live product preview;
-- loopback-only + exact-origin security boundary;
+- loopback-only and exact-origin security boundary;
 - Select button + `I` shortcut;
-- live hover outline;
-- click-to-capture DOM/runtime context;
-- accessible name, text, selector, rect and computed-style packet;
-- one-turn selected context chip;
+- live hover outline and click selection;
+- DOM/accessibility/computed-style packet;
+- one-turn selected-element context chip;
 - deterministic bounded source-hint locator;
-- selected runtime + source-hint context attached automatically to the next Codex turn;
-- desktop/mobile preview geometry;
-- explicit Intel DMG build/mount/architecture/release pipeline.
+- runtime + source hints attached automatically to the next Codex turn;
+- desktop/mobile preview geometry.
 
-Definition of done for this gate:
+## Shipped — Evidence + Browser QA
 
-> Open a real web project → start preview → point at a real element → describe the desired change → Codex receives precise observed context without the user touching code or DevTools → install the resulting Intel DMG.
+- explicit per-project Auto-QA consent;
+- supervised `typecheck` / `test` / `build` checks;
+- bounded command output, timeouts and process-group cleanup;
+- evidence tied to code generation rather than agent narration;
+- browser runtime / console / failed-network capture from the real preview;
+- secret redaction and bounded browser payloads;
+- stale evidence after newer work;
+- one-click `Fix with Monument` for deterministic and browser failures;
+- optional bounded Auto Repair with a two-attempt limit and normal Codex approvals.
 
-## G4 — Task isolation + human version history
+## Shipped — Version Timeline
 
-Next engineering target:
+- `Original` baseline;
+- automatic checkpoint after completed Codex work;
+- Back / Forward and keyboard history;
+- manual Save version;
+- arbitrary restore without deleting future versions;
+- alternative paths after editing an older version;
+- safety checkpoint before restoring dirty source;
+- clean Codex context after Timeline navigation;
+- shadow Git isolated from the user's visible Git index/history;
+- symlink-safe restore boundary;
+- deterministic/browser quality stored per Timeline generation.
 
-- durable Monument task records;
-- task ↔ Codex thread mapping persisted locally;
-- task ↔ Git branch mapping;
-- optional worktree for parallel tasks;
-- real changed-file list and diff viewer;
-- human history labels instead of raw commit UX;
-- “Try another version” → thread fork + optional worktree fork;
-- side-by-side variant preview;
-- commit/save-version flow;
-- safe discard/revert semantics.
+## Shipped — Prompt Queue
 
-## G5 — Deterministic evidence + auto repair
+- persistent bounded queue;
+- add work while Codex/post-turn verification is busy;
+- captured Select context per queued request;
+- pause/resume/reorder/remove;
+- queue restore safety after app restart;
+- task/thread detachment after Timeline restore;
+- automatic hold on current failed evidence with explicit Continue anyway.
 
-- discover project build/test/typecheck/lint checks;
-- one-shot supervised check runner;
-- machine-readable evidence records with command/exit/time/output;
-- automatic checks after meaningful Codex changes;
-- preview console/runtime-error capture;
-- failed-network capture without request bodies/secrets;
-- responsive viewport matrix;
-- before/after screenshots where native capture is available;
-- bounded automatic repair loop;
-- never show `Ready` solely because the agent says it is done.
+## Current gate — Fresh Review + real Ship (`0.2.0-alpha.7` target)
 
-## G6 — Fresh review + real Ship gate
+Fresh Review must be independent from the implementation conversation.
 
-- VibeOS risk route projected into the product only when useful;
-- required evidence derived from route/task class;
-- fresh-context reviewer receives contract + real diff + standards + raw evidence;
-- findings classified by severity;
-- one-click “Fix with Monument”;
-- explicit accept/waive path for non-blocking findings;
-- Ship enabled only when blocking gates pass;
-- commit / push / PR handoff.
+Implemented on the active branch:
 
-## G7 — Reliability / recovery
+- bounded unified diff of the current saved Timeline checkpoint vs its parent;
+- reviewer bound to the exact checkpoint / generation;
+- separate `codex exec` review process;
+- `--ephemeral`, structured `--output-schema` result;
+- reviewer runs from an isolated Monument scratch directory rather than the repository;
+- bounded input/output/stderr and hard timeout;
+- findings classified as blocker / high / medium / low;
+- category, location, evidence, suggested fix and confidence;
+- blocker findings cannot be waived;
+- non-blocking findings require an explicit waiver reason;
+- one-click finding repair through the existing approval-safe repair channel;
+- review quality persisted per Timeline generation;
+- real Ship checklist covering saved version, checks, browser evidence, Fresh Review, pending queue and current Codex/post-turn state;
+- Ship is clickable even when blocked and explains exactly what remains.
+
+Definition of done:
+
+> Current saved generation → current deterministic evidence → current browser evidence when applicable → isolated Fresh Review → all material findings fixed/explicitly resolved → no pending requested work → no agent/post-turn work → Ship gate becomes ready.
+
+Still inside this gate:
+
+- final CI/macOS hardening;
+- product docs/source-contract updates;
+- Intel `0.2.0-alpha.7` release after merge;
+- next handoff from ready Ship state into save/commit/push/PR UX.
+
+## Next major gate — Framer-style Visual Editor
+
+This is the next large user-visible product block after Fresh Review / Ship.
+
+Goal:
+
+> A designer can work directly on the real running product with a Layers tree and Framer-like property inspector while Monument keeps source code correct underneath.
+
+Planned surfaces:
+
+- Layers panel synchronized with the real DOM/component hierarchy;
+- select from canvas or Layers;
+- hover/selection synchronization both directions;
+- hide/lock/rename where semantically safe;
+- hierarchy search and component boundaries;
+- right Properties panel;
+- width/height/min/max;
+- margin/padding/gap;
+- flex/grid/layout controls;
+- position/alignment/overflow;
+- typography: family/weight/size/line-height/letter-spacing/alignment;
+- colors/backgrounds/borders/radius/shadows/opacity;
+- component props / variants where source mapping is trustworthy;
+- design tokens / CSS variables awareness;
+- desktop/tablet/mobile/breakpoint-aware editing;
+- multi-select and batch-safe properties;
+- instant canvas preview;
+- deterministic source edit for simple unambiguous changes;
+- patch preview or Codex fallback for ambiguous/structural changes;
+- Timeline checkpoint + undo/redo for every committed visual edit;
+- automatic evidence refresh after source-changing visual edits.
+
+The architecture and source-synchronization rules are specified in [`VISUAL_EDITOR_SPEC.md`](VISUAL_EDITOR_SPEC.md).
+
+## Following gate — Task isolation / parallel variants
+
+The product already has task/thread projection and Timeline branches, but deeper engineering isolation remains:
+
+- durable task ↔ branch mapping;
+- optional worktree per parallel task;
+- `Try another version` as a human action;
+- thread fork + optional worktree fork underneath;
+- side-by-side live variant comparison;
+- Keep A / Keep B;
+- safe cleanup of abandoned worktrees/branches.
+
+## Reliability / recovery
 
 - exact session restoration after app restart;
 - Codex crash detection/restart;
@@ -104,11 +168,13 @@ Next engineering target:
 - stale process/worktree cleanup;
 - sleep/wake revalidation;
 - offline product/file/Git mode;
-- diagnostic support bundle with secret sanitization;
+- secret-sanitized diagnostic support bundle;
 - large-repository performance budgets;
 - Intel-specific sustained-runtime testing.
 
-## G8 — Commercial macOS distribution
+## Commercial macOS distribution
+
+Current Intel alphas are ad-hoc signed and not notarized. Commercial quality requires:
 
 - Developer ID signing;
 - hardened runtime;
@@ -116,23 +182,22 @@ Next engineering target:
 - signed updater;
 - stable/alpha channels;
 - accessibility + keyboard audit;
-- onboarding and high-quality empty/error states;
-- polished native menus/recent projects;
-- crash reporting only with explicit privacy policy/controls.
+- polished onboarding, native menus and recent projects;
+- explicit privacy controls before any crash reporting/telemetry.
 
 ## Explicitly not on the critical path
 
-Until the core product loop is excellent, do not spend roadmap capacity on:
+Until the core loop is excellent, do not spend roadmap capacity on:
 
 - VS Code extension compatibility;
-- generic multi-agent support beyond Codex;
-- cloud workspaces/team collaboration;
-- Kubernetes/Docker dashboards;
-- SSH remote development;
-- marketplace mechanics;
+- alternative coding agents;
 - a custom model gateway;
+- cloud collaboration/workspaces;
+- SSH remote development;
+- Kubernetes/Docker dashboards;
+- marketplace mechanics;
 - a second coding-agent loop implemented by Monument.
 
-The product standard remains:
+Product standard:
 
-> **Preview + Prompt first. The engineering monster stays underneath.**
+> **Preview + Prompt + Visual editing first. The engineering monster stays underneath.**
