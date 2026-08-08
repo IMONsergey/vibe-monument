@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ pub struct TokenEditChange {
     after: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum TokenDefinitionScope {
     Global,
@@ -45,6 +46,7 @@ pub struct TokenEditSource {
     selector: String,
     property: String,
     source_value: String,
+    conditional: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +58,7 @@ pub struct TokenEditDefinition {
     value: String,
     scope: TokenDefinitionScope,
     selected_scope: bool,
+    conditional: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,7 +75,7 @@ pub struct TokenEditProbe {
     instance_eligible: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum TokenEditMode {
     Instance,
@@ -123,6 +126,7 @@ struct RuleBlock {
     selector: String,
     body_start: usize,
     body_end: usize,
+    conditional: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +134,7 @@ struct BlockContext {
     selector: String,
     body_start: usize,
     has_nested_block: bool,
+    conditional: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +147,7 @@ struct DeclarationCandidate {
     replacement_start: usize,
     replacement_end: usize,
     selector_score: u32,
+    conditional: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -290,7 +296,7 @@ fn selector_score(selector: &str, selection: &TokenEditSelection) -> u32 {
             score += 100;
         }
     }
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     for class in selection.classes.iter().take(16) {
         let Some(class) = safe_selector_ident(Some(class)) else {
             continue;
@@ -354,14 +360,20 @@ fn rule_blocks(content: &str) -> Result<Vec<RuleBlock>, String> {
         }
         match byte {
             b'{' => {
+                let parent_conditional = stack
+                    .last()
+                    .map(|parent| parent.conditional || parent.selector.trim_start().starts_with('@'))
+                    .unwrap_or(false);
                 if let Some(parent) = stack.last_mut() {
                     parent.has_nested_block = true;
                 }
                 let selector = content[segment_start..i].trim().to_string();
+                let conditional = parent_conditional || selector.trim_start().starts_with('@');
                 stack.push(BlockContext {
                     selector,
                     body_start: i + 1,
                     has_nested_block: false,
+                    conditional,
                 });
                 segment_start = i + 1;
             }
@@ -375,6 +387,7 @@ fn rule_blocks(content: &str) -> Result<Vec<RuleBlock>, String> {
                         selector: context.selector,
                         body_start: context.body_start,
                         body_end: i,
+                        conditional: context.conditional,
                     });
                 }
                 segment_start = i + 1;
@@ -594,6 +607,7 @@ fn declaration_candidates(
             replacement_start: absolute_start,
             replacement_end: absolute_end,
             selector_score: score,
+            conditional: block.conditional,
         });
     }
     result
@@ -640,7 +654,9 @@ fn token_definition_candidates(
         let absolute_end = block.body_start + segment_start + value_end;
         let selector: String = block.selector.trim().chars().take(MAX_SELECTOR_BYTES).collect();
         let scope = scope_kind(&selector);
-        let selected_scope = scope == TokenDefinitionScope::Scoped && selector_score(&selector, selection) >= 20;
+        let selected_scope = !block.conditional
+            && scope == TokenDefinitionScope::Scoped
+            && selector_score(&selector, selection) >= 20;
         result.push(TokenDefinitionCandidate {
             public: TokenEditDefinition {
                 path: path.to_string(),
@@ -649,6 +665,7 @@ fn token_definition_candidates(
                 value: content[absolute_start..absolute_end].trim().to_string(),
                 scope,
                 selected_scope,
+                conditional: block.conditional,
             },
             replacement_start: absolute_start,
             replacement_end: absolute_end,
@@ -670,44 +687,40 @@ fn token_usage_count(content: &str, token: &str) -> usize {
         .count()
 }
 
+fn empty_probe(reason: impl Into<String>, truncated: bool) -> ProbeInternal {
+    ProbeInternal {
+        public: TokenEditProbe {
+            eligible: false,
+            reason: reason.into(),
+            token: None,
+            source: None,
+            definitions: Vec::new(),
+            definition_count: 0,
+            usage_count: 0,
+            truncated,
+            instance_eligible: false,
+        },
+        source: None,
+        definitions: Vec::new(),
+    }
+}
+
 fn probe_internal(
     root: &Path,
     selection: &TokenEditSelection,
     change: &TokenEditChange,
 ) -> Result<ProbeInternal, String> {
     let Some(property) = css_property(change.property.trim()) else {
-        return Ok(ProbeInternal {
-            public: TokenEditProbe {
-                eligible: false,
-                reason: "This property is outside the bounded token-edit grammar.".into(),
-                token: None,
-                source: None,
-                definitions: Vec::new(),
-                definition_count: 0,
-                usage_count: 0,
-                truncated: false,
-                instance_eligible: false,
-            },
-            source: None,
-            definitions: Vec::new(),
-        });
+        return Ok(empty_probe(
+            "This property is outside the bounded token-edit grammar.",
+            false,
+        ));
     };
     if !has_selector_evidence(selection) {
-        return Ok(ProbeInternal {
-            public: TokenEditProbe {
-                eligible: false,
-                reason: "No safe id/class source ownership evidence is available for token editing.".into(),
-                token: None,
-                source: None,
-                definitions: Vec::new(),
-                definition_count: 0,
-                usage_count: 0,
-                truncated: false,
-                instance_eligible: false,
-            },
-            source: None,
-            definitions: Vec::new(),
-        });
+        return Ok(empty_probe(
+            "No safe id/class source ownership evidence is available for token editing.",
+            false,
+        ));
     }
 
     let mut files = Vec::new();
@@ -746,42 +759,29 @@ fn probe_internal(
     });
 
     if truncated {
-        return Ok(ProbeInternal {
-            public: TokenEditProbe {
-                eligible: false,
-                reason: "Token source scan hit its bounded project limit; deterministic ownership cannot be proven.".into(),
-                token: None,
-                source: None,
-                definitions: Vec::new(),
-                definition_count: 0,
-                usage_count: 0,
-                truncated: true,
-                instance_eligible: false,
-            },
-            source: None,
-            definitions: Vec::new(),
-        });
+        return Ok(empty_probe(
+            "Token source scan hit its bounded project limit; deterministic ownership cannot be proven.",
+            true,
+        ));
+    }
+    if property_candidates.iter().any(|candidate| candidate.conditional) {
+        return Ok(empty_probe(
+            "Responsive/conditional CSS ownership is present for this property; breakpoint scope must be chosen explicitly through Codex.",
+            false,
+        ));
     }
     if property_candidates.len() != 1 {
-        return Ok(ProbeInternal {
-            public: TokenEditProbe {
-                eligible: false,
-                reason: if property_candidates.is_empty() {
-                    format!("No unique plain CSS owner was proven for {property}.")
-                } else {
-                    format!("{property} has {} matching source owners; token editing refuses to guess.", property_candidates.len())
-                },
-                token: None,
-                source: None,
-                definitions: Vec::new(),
-                definition_count: 0,
-                usage_count: 0,
-                truncated: false,
-                instance_eligible: false,
+        return Ok(empty_probe(
+            if property_candidates.is_empty() {
+                format!("No unique plain CSS owner was proven for {property}.")
+            } else {
+                format!(
+                    "{property} has {} matching source owners; token editing refuses to guess.",
+                    property_candidates.len()
+                )
             },
-            source: None,
-            definitions: Vec::new(),
-        });
+            false,
+        ));
     }
 
     let source = property_candidates.remove(0);
@@ -789,7 +789,9 @@ fn probe_internal(
         return Ok(ProbeInternal {
             public: TokenEditProbe {
                 eligible: false,
-                reason: format!("{property} is not backed by one simple CSS custom property reference."),
+                reason: format!(
+                    "{property} is not backed by one simple CSS custom property reference."
+                ),
                 token: None,
                 source: Some(TokenEditSource {
                     path: source.path.clone(),
@@ -797,6 +799,7 @@ fn probe_internal(
                     selector: source.selector.clone(),
                     property: source.property.clone(),
                     source_value: source.source_value.clone(),
+                    conditional: source.conditional,
                 }),
                 definitions: Vec::new(),
                 definition_count: 0,
@@ -830,20 +833,32 @@ fn probe_internal(
         truncated = true;
     }
 
-    let public_definitions = definitions.iter().map(|definition| definition.public.clone()).collect();
+    let public_definitions = definitions
+        .iter()
+        .map(|definition| definition.public.clone())
+        .collect();
     let public_source = TokenEditSource {
         path: source.path.clone(),
         line: source.line,
         selector: source.selector.clone(),
         property: source.property.clone(),
         source_value: source.source_value.clone(),
+        conditional: source.conditional,
     };
     let reason = if definitions.is_empty() {
         "Token-backed property proven. The selected instance can be detached safely; token definition was not found in bounded plain CSS.".to_string()
+    } else if definitions.iter().all(|definition| definition.public.conditional) {
+        format!(
+            "Token-backed property proven, but all definitions of {token} are conditional; direct token mutation is disabled."
+        )
     } else if usage_count > 1 {
-        format!("Token-backed property proven. {token} is used in {usage_count} places; shared token mutation requires an explicit scope choice.")
+        format!(
+            "Token-backed property proven. {token} is used in {usage_count} places; shared token mutation requires an explicit scope choice."
+        )
     } else {
-        format!("Token-backed property proven. Choose whether to detach this element or mutate {token} at its proven scope.")
+        format!(
+            "Token-backed property proven. Choose whether to detach this element or mutate {token} at its proven scope."
+        )
     };
 
     Ok(ProbeInternal {
@@ -856,7 +871,7 @@ fn probe_internal(
             definition_count,
             usage_count,
             truncated,
-            instance_eligible: !truncated && source.selector_score >= 20,
+            instance_eligible: !truncated && !source.conditional && source.selector_score >= 20,
         },
         source: Some(source),
         definitions,
@@ -890,29 +905,46 @@ fn resolve_plan(
     decision: &TokenEditDecision,
 ) -> Result<ResolvedTokenPlan, String> {
     let after = change.after.trim();
-    if change.before.len() > MAX_VALUE_BYTES || after.len() > MAX_VALUE_BYTES || !value_is_balanced(after) {
-        return Ok(unsafe_plan(decision.mode.clone(), "Requested value is outside the bounded safe CSS value grammar."));
+    if change.before.len() > MAX_VALUE_BYTES
+        || after.len() > MAX_VALUE_BYTES
+        || !value_is_balanced(after)
+    {
+        return Ok(unsafe_plan(
+            decision.mode,
+            "Requested value is outside the bounded safe CSS value grammar.",
+        ));
     }
     let probe = probe_internal(root, selection, change)?;
     if !probe.public.eligible || probe.public.truncated {
-        return Ok(unsafe_plan(decision.mode.clone(), probe.public.reason));
+        return Ok(unsafe_plan(decision.mode, probe.public.reason));
     }
     let Some(token) = probe.public.token.clone() else {
-        return Ok(unsafe_plan(decision.mode.clone(), "Token ownership was not proven."));
+        return Ok(unsafe_plan(
+            decision.mode,
+            "Token ownership was not proven.",
+        ));
     };
 
     match decision.mode {
         TokenEditMode::Instance => {
             if !probe.public.instance_eligible {
-                return Ok(unsafe_plan(TokenEditMode::Instance, "Selected instance does not have sufficiently strong selector ownership for deterministic detachment."));
+                return Ok(unsafe_plan(
+                    TokenEditMode::Instance,
+                    "Selected instance does not have sufficiently strong non-conditional selector ownership for deterministic detachment.",
+                ));
             }
             let Some(source) = probe.source else {
-                return Ok(unsafe_plan(TokenEditMode::Instance, "Selected source declaration disappeared during token resolution."));
+                return Ok(unsafe_plan(
+                    TokenEditMode::Instance,
+                    "Selected source declaration disappeared during token resolution.",
+                ));
             };
             Ok(ResolvedTokenPlan {
                 public: TokenTransactionPlan {
                     safe: true,
-                    reason: format!("Detach this element from {token} and write one literal declaration in the proven owner rule."),
+                    reason: format!(
+                        "Detach this element from {token} and write one literal declaration in the proven owner rule."
+                    ),
                     mode: TokenEditMode::Instance,
                     token: Some(token),
                     scope: "instance".into(),
@@ -929,33 +961,67 @@ fn resolve_plan(
         }
         TokenEditMode::Token => {
             let Some(target_path) = decision.target_path.as_deref() else {
-                return Ok(unsafe_plan(TokenEditMode::Token, "Choose an exact token definition before applying a token mutation."));
+                return Ok(unsafe_plan(
+                    TokenEditMode::Token,
+                    "Choose an exact token definition before applying a token mutation.",
+                ));
             };
             let Some(target_line) = decision.target_line else {
-                return Ok(unsafe_plan(TokenEditMode::Token, "Chosen token definition is missing its source line."));
+                return Ok(unsafe_plan(
+                    TokenEditMode::Token,
+                    "Chosen token definition is missing its source line.",
+                ));
             };
             let Some(target_selector) = decision.target_selector.as_deref() else {
-                return Ok(unsafe_plan(TokenEditMode::Token, "Chosen token definition is missing its selector."));
+                return Ok(unsafe_plan(
+                    TokenEditMode::Token,
+                    "Chosen token definition is missing its selector.",
+                ));
             };
-            let matching: Vec<_> = probe.definitions.iter().filter(|definition| {
-                definition.public.path == target_path
-                    && definition.public.line == target_line
-                    && definition.public.selector == target_selector
-                    && decision.expected_value.as_deref().is_none_or(|value| definition.public.value == value)
-            }).collect();
+            let matching: Vec<_> = probe
+                .definitions
+                .iter()
+                .filter(|definition| {
+                    definition.public.path == target_path
+                        && definition.public.line == target_line
+                        && definition.public.selector == target_selector
+                        && decision
+                            .expected_value
+                            .as_deref()
+                            .is_none_or(|value| definition.public.value == value)
+                })
+                .collect();
             if matching.len() != 1 {
-                return Ok(unsafe_plan(TokenEditMode::Token, "Chosen token definition is stale or ambiguous; reselect scope against current source."));
+                return Ok(unsafe_plan(
+                    TokenEditMode::Token,
+                    "Chosen token definition is stale or ambiguous; reselect scope against current source.",
+                ));
             }
             let definition = matching[0];
+            if definition.public.conditional {
+                return Ok(unsafe_plan(
+                    TokenEditMode::Token,
+                    "Chosen token definition is inside a conditional CSS scope; breakpoint-aware token authoring is not deterministic in M2.2.",
+                ));
+            }
             match definition.public.scope {
                 TokenDefinitionScope::Global => {
                     if probe.public.usage_count > 1 && !decision.confirm_shared_global {
-                        return Ok(unsafe_plan(TokenEditMode::Token, format!("{token} affects {} proven usages. Explicit global blast-radius confirmation is required.", probe.public.usage_count)));
+                        return Ok(unsafe_plan(
+                            TokenEditMode::Token,
+                            format!(
+                                "{token} affects {} proven usages. Explicit global blast-radius confirmation is required.",
+                                probe.public.usage_count
+                            ),
+                        ));
                     }
                 }
                 TokenDefinitionScope::Scoped => {
                     if !definition.public.selected_scope {
-                        return Ok(unsafe_plan(TokenEditMode::Token, "Scoped token owner is not proven to belong to the selected element; use Codex instead."));
+                        return Ok(unsafe_plan(
+                            TokenEditMode::Token,
+                            "Scoped token owner is not proven to belong to the selected element; use Codex instead.",
+                        ));
                     }
                 }
             }
@@ -967,8 +1033,12 @@ fn resolve_plan(
                 public: TokenTransactionPlan {
                     safe: true,
                     reason: match definition.public.scope {
-                        TokenDefinitionScope::Global => format!("Explicitly mutate shared token {token} at its chosen global definition."),
-                        TokenDefinitionScope::Scoped => format!("Mutate {token} inside the proven selected-element scope."),
+                        TokenDefinitionScope::Global => {
+                            format!("Explicitly mutate shared token {token} at its chosen global definition.")
+                        }
+                        TokenDefinitionScope::Scoped => {
+                            format!("Mutate {token} inside the proven selected-element scope.")
+                        }
                     },
                     mode: TokenEditMode::Token,
                     token: Some(token),
@@ -988,8 +1058,13 @@ fn resolve_plan(
 }
 
 fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
-    let parent = path.parent().ok_or_else(|| "Token source file has no parent directory".to_string())?;
-    let file_name = path.file_name().and_then(|value| value.to_str()).unwrap_or("source.css");
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Token source file has no parent directory".to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("source.css");
     let permissions = fs::metadata(path)
         .map_err(|error| format!("Cannot read token source permissions: {error}"))?
         .permissions();
@@ -997,7 +1072,10 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let temp = parent.join(format!(".{file_name}.monument-token-{}-{nonce}.tmp", std::process::id()));
+    let temp = parent.join(format!(
+        ".{file_name}.monument-token-{}-{nonce}.tmp",
+        std::process::id()
+    ));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -1053,9 +1131,16 @@ pub fn project_token_transaction_commit(
     let root = project_root(project_path)?;
     let resolved = resolve_plan(&root, &selection, &change, &decision)?;
     if !resolved.public.safe {
-        return Err(format!("Token source transaction is not safe: {}", resolved.public.reason));
+        return Err(format!(
+            "Token source transaction is not safe: {}",
+            resolved.public.reason
+        ));
     }
-    let path_string = resolved.public.path.clone().ok_or_else(|| "Token transaction path missing".to_string())?;
+    let path_string = resolved
+        .public
+        .path
+        .clone()
+        .ok_or_else(|| "Token transaction path missing".to_string())?;
     let path = root.join(&path_string);
     let metadata = fs::symlink_metadata(&path)
         .map_err(|error| format!("Cannot inspect token transaction target: {error}"))?;
@@ -1070,16 +1155,34 @@ pub fn project_token_transaction_commit(
     }
     let mut content = fs::read_to_string(&canonical)
         .map_err(|error| format!("Cannot read token transaction target: {error}"))?;
-    let start = resolved.replacement_start.ok_or_else(|| "Token replacement range missing".to_string())?;
-    let end = resolved.replacement_end.ok_or_else(|| "Token replacement range missing".to_string())?;
-    let expected = resolved.public.source_before.as_deref().ok_or_else(|| "Token expected source missing".to_string())?;
-    let replacement = resolved.public.source_after.as_deref().ok_or_else(|| "Token replacement source missing".to_string())?;
-    let actual = content.get(start..end).ok_or_else(|| "Source changed after token transaction resolution".to_string())?;
+    let start = resolved
+        .replacement_start
+        .ok_or_else(|| "Token replacement range missing".to_string())?;
+    let end = resolved
+        .replacement_end
+        .ok_or_else(|| "Token replacement range missing".to_string())?;
+    let expected = resolved
+        .public
+        .source_before
+        .as_deref()
+        .ok_or_else(|| "Token expected source missing".to_string())?;
+    let replacement = resolved
+        .public
+        .source_after
+        .as_deref()
+        .ok_or_else(|| "Token replacement source missing".to_string())?;
+    let actual = content
+        .get(start..end)
+        .ok_or_else(|| "Source changed after token transaction resolution".to_string())?;
     if actual.trim() != expected.trim() {
-        return Err("Source changed after token transaction resolution; re-apply against current source".into());
+        return Err(
+            "Source changed after token transaction resolution; re-apply against current source"
+                .into(),
+        );
     }
     content.replace_range(start..end, replacement);
-    rule_blocks(&content).map_err(|error| format!("Updated CSS failed structural validation: {error}"))?;
+    rule_blocks(&content)
+        .map_err(|error| format!("Updated CSS failed structural validation: {error}"))?;
     write_atomic(&canonical, &content)?;
     Ok(TokenTransactionCommit {
         path: path_string,
@@ -1100,7 +1203,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("monument-token-transaction-{name}-{}-{nonce}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "monument-token-transaction-{name}-{}-{nonce}",
+            std::process::id()
+        ));
         fs::create_dir_all(&root).unwrap();
         root
     }
@@ -1127,14 +1233,18 @@ mod tests {
         fs::write(
             root.join("styles.css"),
             ":root { --space: 16px; }\n.card { gap: var(--space); }\n.other { gap: var(--space); }\n",
-        ).unwrap();
-        let probe = probe_internal(&root, &selection(), &change("24px")).unwrap().public;
+        )
+        .unwrap();
+        let probe = probe_internal(&root, &selection(), &change("24px"))
+            .unwrap()
+            .public;
         assert!(probe.eligible);
         assert!(probe.instance_eligible);
         assert_eq!(probe.token.as_deref(), Some("--space"));
         assert_eq!(probe.definition_count, 1);
         assert_eq!(probe.usage_count, 2);
         assert_eq!(probe.definitions[0].scope, TokenDefinitionScope::Global);
+        assert!(!probe.definitions[0].conditional);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1144,7 +1254,8 @@ mod tests {
         fs::write(
             root.join("styles.css"),
             ":root { --space: 16px; }\n.card { gap: var(--space); }\n.other { gap: var(--space); }\n",
-        ).unwrap();
+        )
+        .unwrap();
         let decision = TokenEditDecision {
             mode: TokenEditMode::Instance,
             target_path: None,
@@ -1157,7 +1268,10 @@ mod tests {
         assert!(plan.public.safe);
         let path = root.join(plan.public.path.as_ref().unwrap());
         let mut content = fs::read_to_string(&path).unwrap();
-        content.replace_range(plan.replacement_start.unwrap()..plan.replacement_end.unwrap(), "24px");
+        content.replace_range(
+            plan.replacement_start.unwrap()..plan.replacement_end.unwrap(),
+            "24px",
+        );
         assert!(content.contains(".card { gap: 24px; }"));
         assert!(content.contains(".other { gap: var(--space); }"));
         let _ = fs::remove_dir_all(root);
@@ -1169,7 +1283,8 @@ mod tests {
         fs::write(
             root.join("styles.css"),
             ":root { --space: 16px; }\n.card { gap: var(--space); }\n.other { gap: var(--space); }\n",
-        ).unwrap();
+        )
+        .unwrap();
         let probe = probe_internal(&root, &selection(), &change("24px")).unwrap();
         let definition = &probe.public.definitions[0];
         let decision = TokenEditDecision {
@@ -1183,8 +1298,16 @@ mod tests {
         let blocked = resolve_plan(&root, &selection(), &change("24px"), &decision).unwrap();
         assert!(!blocked.public.safe);
         assert!(blocked.public.reason.contains("confirmation"));
-        let confirmed = TokenEditDecision { confirm_shared_global: true, ..decision };
-        assert!(resolve_plan(&root, &selection(), &change("24px"), &confirmed).unwrap().public.safe);
+        let confirmed = TokenEditDecision {
+            confirm_shared_global: true,
+            ..decision
+        };
+        assert!(
+            resolve_plan(&root, &selection(), &change("24px"), &confirmed)
+                .unwrap()
+                .public
+                .safe
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1194,10 +1317,17 @@ mod tests {
         fs::write(
             root.join("styles.css"),
             ":root { --space: 16px; }\n.card { --space: 12px; gap: var(--space); }\n.other { --space: 8px; }\n",
-        ).unwrap();
+        )
+        .unwrap();
         let probe = probe_internal(&root, &selection(), &change("20px")).unwrap();
-        let local = probe.public.definitions.iter().find(|definition| definition.selector == ".card").unwrap();
+        let local = probe
+            .public
+            .definitions
+            .iter()
+            .find(|definition| definition.selector == ".card")
+            .unwrap();
         assert!(local.selected_scope);
+        assert!(!local.conditional);
         let decision = TokenEditDecision {
             mode: TokenEditMode::Token,
             target_path: Some(local.path.clone()),
@@ -1206,8 +1336,18 @@ mod tests {
             expected_value: Some(local.value.clone()),
             confirm_shared_global: false,
         };
-        assert!(resolve_plan(&root, &selection(), &change("20px"), &decision).unwrap().public.safe);
-        let other = probe.public.definitions.iter().find(|definition| definition.selector == ".other").unwrap();
+        assert!(
+            resolve_plan(&root, &selection(), &change("20px"), &decision)
+                .unwrap()
+                .public
+                .safe
+        );
+        let other = probe
+            .public
+            .definitions
+            .iter()
+            .find(|definition| definition.selector == ".other")
+            .unwrap();
         let unsafe_decision = TokenEditDecision {
             target_path: Some(other.path.clone()),
             target_line: Some(other.line),
@@ -1215,7 +1355,12 @@ mod tests {
             expected_value: Some(other.value.clone()),
             ..decision
         };
-        assert!(!resolve_plan(&root, &selection(), &change("20px"), &unsafe_decision).unwrap().public.safe);
+        assert!(
+            !resolve_plan(&root, &selection(), &change("20px"), &unsafe_decision)
+                .unwrap()
+                .public
+                .safe
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1225,10 +1370,59 @@ mod tests {
         fs::write(
             root.join("styles.css"),
             ":root { --space: 16px; }\n.card { gap: var(--space); }\n.card { gap: var(--space); }\n",
-        ).unwrap();
-        let probe = probe_internal(&root, &selection(), &change("20px")).unwrap().public;
+        )
+        .unwrap();
+        let probe = probe_internal(&root, &selection(), &change("20px"))
+            .unwrap()
+            .public;
         assert!(!probe.eligible);
         assert!(probe.reason.contains("2 matching source owners"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn responsive_property_owner_requires_codex() {
+        let root = fixture("responsive-owner");
+        fs::write(
+            root.join("styles.css"),
+            ":root { --space: 16px; }\n.card { gap: var(--space); }\n@media (max-width: 700px) { .card { gap: var(--space); } }\n",
+        )
+        .unwrap();
+        let probe = probe_internal(&root, &selection(), &change("20px"))
+            .unwrap()
+            .public;
+        assert!(!probe.eligible);
+        assert!(probe.reason.contains("Responsive/conditional CSS ownership"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn conditional_token_definition_cannot_be_directly_mutated() {
+        let root = fixture("conditional-token");
+        fs::write(
+            root.join("styles.css"),
+            ".card { gap: var(--space); }\n@media (max-width: 700px) { .card { --space: 12px; } }\n",
+        )
+        .unwrap();
+        let probe = probe_internal(&root, &selection(), &change("20px")).unwrap();
+        let conditional = probe
+            .public
+            .definitions
+            .iter()
+            .find(|definition| definition.conditional)
+            .unwrap();
+        assert!(!conditional.selected_scope);
+        let decision = TokenEditDecision {
+            mode: TokenEditMode::Token,
+            target_path: Some(conditional.path.clone()),
+            target_line: Some(conditional.line),
+            target_selector: Some(conditional.selector.clone()),
+            expected_value: Some(conditional.value.clone()),
+            confirm_shared_global: false,
+        };
+        let plan = resolve_plan(&root, &selection(), &change("20px"), &decision).unwrap();
+        assert!(!plan.public.safe);
+        assert!(plan.public.reason.contains("conditional CSS scope"));
         let _ = fs::remove_dir_all(root);
     }
 }
