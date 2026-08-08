@@ -31,6 +31,8 @@ Monument is not a VS Code clone, not an AI sidebar, not a second coding-agent im
 7. **The user should not need to understand Git or Codex protocol mechanics to use Monument well.**
 8. **Source remains authoritative.** Visual/product editing must never create a second hidden state that only looks correct in Monument.
 9. **Remote preview is untrusted.** The page being edited may send bounded visual data only; it must not gain generic filesystem, process, Git, Codex or system access.
+10. **Source state is identified by Timeline checkpoint, not agent turn.** Codex turns are provenance; checks/review/repair/Ship prove the exact saved checkpoint.
+11. **Fast editing may only be fast while deterministic.** Ambiguity, shared scope, malformed source or concurrent work routes to Codex rather than guessing.
 
 ## 3. Normal product loop
 
@@ -38,14 +40,15 @@ Monument is not a VS Code clone, not an AI sidebar, not a second coding-agent im
 2. See the real running product.
 3. Describe what to build/change or enter Visual Editor.
 4. Optionally point at an element with Select / Layers.
-5. Codex works; approvals/questions appear only when actually required.
-6. Monument creates a reversible Version Timeline checkpoint.
-7. Monument collects generation-bound deterministic/browser evidence.
-8. Failed evidence can be repaired with bounded loops.
-9. Independent Fresh Review inspects the exact saved generation.
-10. Ship becomes Ready only when blocking evidence/review/work gates pass.
-11. User may explicitly create a local Git commit from the reviewed file plan.
-12. Push/PR remains a separate explicit network action.
+5. For a provably deterministic property edit, Monument can dry-run and patch source directly; otherwise Codex works normally.
+6. Approvals/questions appear only when actually required.
+7. Monument creates one reversible Version Timeline checkpoint for the resulting source state.
+8. Monument collects checkpoint-bound deterministic/browser evidence.
+9. Failed evidence can be repaired with bounded loops.
+10. Independent Fresh Review inspects the exact saved checkpoint.
+11. Ship becomes Ready only when blocking evidence/review/work gates pass for that checkpoint.
+12. User may explicitly create a local Git commit from the reviewed file plan.
+13. Push/PR remains a separate explicit network action.
 
 Routine users should stay almost entirely in Preview + Prompt + Visual Editor.
 
@@ -60,6 +63,7 @@ Tauri / Rust native host
         ├── managed dev runtime
         ├── native WKWebView preview
         ├── Select / Visual Editor bridge
+        ├── deterministic visual-source transaction engine
         ├── Browser Evidence
         ├── deterministic verification
         ├── shadow-Git Version Timeline
@@ -70,7 +74,7 @@ Tauri / Rust native host
         └── evidence-based Ship + local Git handoff
 ```
 
-Codex remains the coding-agent engine. Monument owns product UX, local orchestration, visual context, history, evidence, review and ship semantics.
+Codex remains the coding-agent engine. Monument owns product UX, local orchestration, visual context, safe deterministic edit classes, history, evidence, review and ship semantics.
 
 ## 5. Implemented product state on `main`
 
@@ -95,7 +99,7 @@ Codex remains the coding-agent engine. Monument owns product UX, local orchestra
 - ChatGPT auth recovery through Codex.
 - Codex version/schema diagnostics.
 
-### Product-first visual workflow
+### Product-first visual workflow — Visual Editor M1
 - Native child WKWebView preview.
 - Loopback-only exact-origin navigation boundary.
 - Desktop/mobile preview.
@@ -103,7 +107,16 @@ Codex remains the coding-agent engine. Monument owns product UX, local orchestra
 - Live hover outline + click capture.
 - DOM/accessibility/text/rect/computed-style context.
 - Bounded source-hint search.
-- Selected context is one-shot and attached automatically to the next prompt.
+- Real Layers projection from the running product.
+- Bidirectional canvas ↔ Layers selection.
+- Computed Properties for layout, spacing, typography and appearance.
+- Bounded direct-text editing when complete text is available.
+- Source ownership signal (`Likely / Possible / Weak / Unknown`).
+- M1 Apply remains source-authoritative through Prompt Queue → Codex → Timeline → evidence.
+- No durable preview-only styling model.
+
+Deep M1 record: [`VISUAL_EDITOR_M1_IMPLEMENTATION.md`](VISUAL_EDITOR_M1_IMPLEMENTATION.md).
+Target architecture/product spec: [`VISUAL_EDITOR_SPEC.md`](VISUAL_EDITOR_SPEC.md).
 
 ### Version Timeline
 - Original baseline.
@@ -117,21 +130,25 @@ Codex remains the coding-agent engine. Monument owns product UX, local orchestra
 - Shadow Git isolated from the user's visible Git index/history.
 - Safe path/symlink preflight.
 - Clean Codex task context after Timeline navigation.
-- Quality bound to exact code generations.
+- Exact saved checkpoint is authoritative source/evidence identity.
+- `turnSerial` is Codex provenance only and may legitimately be null.
 
 ### Evidence / QA
 - Deterministic `typecheck/test/build` automatic lane after explicit per-project consent.
 - Manual `lint/check` through explicit one-shot action.
 - Timeouts, bounded output, safe argv process execution.
 - Browser runtime/console/network evidence from the real preview.
-- Evidence staleness when code generation changes.
-- Evidence quality badges bound to Timeline generations.
+- Deterministic evidence stores exact `checkpointId`.
+- Browser evidence stores exact `capturedForCheckpointId` and revalidates after capture.
+- Dirty/changed source makes old evidence stale.
+- Timeline quality badges are checkpoint-keyed.
+- Legacy turn-only quality is not guessed onto current checkpoints.
 
 ### Repair
 - Explicit one-click Fix with Monument from evidence.
 - Optional bounded Auto Repair.
 - Maximum two autonomous attempts.
-- Generation safety.
+- Checkpoint safety guard before repair.
 - Normal Codex approvals remain authoritative.
 - Anti-test-weakening rules and bounded evidence context.
 
@@ -143,15 +160,16 @@ Codex remains the coding-agent engine. Monument owns product UX, local orchestra
 - Pause/reorder/remove.
 - Restore/task safety.
 - Failed evidence can block dequeue until explicitly overridden.
+- Override semantics are checkpoint-bound so a bypass cannot leak onto another source state.
 
 ### Fresh Review
 - independent reviewer with no implementer conversation history;
-- exact saved Timeline generation vs parent;
+- exact saved Timeline checkpoint vs parent;
 - bounded unified diff + bounded source/evidence context;
 - separate ephemeral Codex process in a scratch directory;
 - read-only sandbox, ignored user config, structured JSON output;
 - hard timeout and bounded IO;
-- findings persisted against checkpoint/generation;
+- findings persisted against checkpoint;
 - blocker/high/medium/low severity plus category/location/evidence/suggested fix/confidence;
 - blocker cannot be waived;
 - non-blocking findings require explicit waiver reason;
@@ -159,17 +177,19 @@ Codex remains the coding-agent engine. Monument owns product UX, local orchestra
 - stale review never satisfies Ship.
 
 ### Ship Gate + local Git handoff
-Ship is an evidence decision, not a disabled decorative button.
+Ship is an evidence decision, not a decorative button.
 
 Blocking state is computed from:
-- exact saved non-dirty Timeline generation;
-- deterministic evidence freshness/result;
-- browser evidence freshness/result when live web runtime applies;
-- Fresh Review freshness/result;
+- exact saved non-dirty Timeline checkpoint;
+- deterministic evidence freshness/result for that checkpoint;
+- browser evidence freshness/result for that checkpoint when live web runtime applies;
+- Fresh Review freshness/result for that checkpoint;
 - unresolved findings/waivers;
 - Prompt Queue emptiness;
 - Codex approval/turn state;
 - pending post-turn version/evidence/review work.
+
+A saved checkpoint does **not** need a Codex turn to be shippable.
 
 After Ready:
 - Monument calculates an exact local Git file plan;
@@ -185,168 +205,151 @@ After Ready:
 ## 6. Current stable Intel release line
 
 Latest confirmed release:
-- **`0.2.0-alpha.7` — Fresh Review + Ship**;
-- Intel x86_64;
+- **`0.2.0-alpha.8` — Visual Editor M1**;
+- Intel x86_64 (`x86_64-apple-darwin`);
 - macOS 13+;
-- DMG mount-smoke verified in CI;
+- built on `macos-15-intel`;
+- DMG mount-smoke verified;
 - binary architecture verified x86_64;
-- SHA-256 `6db3380641a54a94756fcdaa7b057706c68a6002751134c2a1be43f722546ca6`;
+- SHA-256 `6b261684a7622d1324e8b20ab4df2d71ebd6a6e05f2c6ae19cb0ee3f7f280713`;
 - ad-hoc signed, not notarized;
-- release tag `monument-v0.2.0-alpha.7-intel`.
+- release tag `monument-v0.2.0-alpha.8-intel`;
+- asset `Monument-0.2.0-alpha.8-Intel-x86_64.dmg`.
 
-Published release identities are immutable. Visual Editor M1 must ship as a newer version, never by replacing alpha.7.
+Published release identities are immutable. Visual Editor M2 must ship as a newer version, never by replacing alpha.8.
 
-## 7. ACTIVE GATE — Visual Editor M1
+## 7. ACTIVE GATE — Visual Editor M2: Deterministic Source Transactions
 
 Branch / PR:
-- `monument/visual-editor-m1`;
-- PR #34 `feat: Visual Editor M1 — live Layers and Properties`.
+- `monument/visual-editor-m2-checkpoints`;
+- PR #37.
 
-Deep implementation record: [`VISUAL_EDITOR_M1_IMPLEMENTATION.md`](VISUAL_EDITOR_M1_IMPLEMENTATION.md).
-Target architecture/product spec: [`VISUAL_EDITOR_SPEC.md`](VISUAL_EDITOR_SPEC.md).
+Deep implementation/spec record: [`VISUAL_EDITOR_M2_CHECKPOINT_IDENTITY.md`](VISUAL_EDITOR_M2_CHECKPOINT_IDENTITY.md).
 
-### M1 implemented on the active branch
+### M2 problem
 
-#### Native security / capability isolation
-- all Monument app commands are enumerated through a Tauri app command manifest;
-- privileged `main` capability is scoped to webview `main`;
-- `monument-preview` gets a separate remote capability;
-- preview remote capability allows exactly one data-ingest command: `preview_editor_emit`;
-- preview gets no generic `core:default`, filesystem, process, Git, Codex or system permissions;
-- bridge validates invoking webview label;
-- accepted message kinds are only `tree`, `selection`, `hover`, `ready`;
-- separate payload size limits and bridge rate limit;
-- loopback URL scope + existing exact-origin navigation lock remain authoritative.
+M1 routes every property Apply through Codex. This is correct but too slow for changes where source ownership is provably exact.
 
-#### Real Layers projection
-- Visual Editor runtime is injected into the existing real child WKWebView;
-- maximum 600 meaningful projected layers / depth 18;
-- session-only WeakMap element ids (`m-<digits>`);
-- no durable DOM node-id attributes;
-- semantic/visible/control/text/flex/grid elements prioritized;
-- runtime hierarchy with parent/depth/kind/name/text/selector/rect/display/editability;
-- Layers search/collapse/hover/select;
-- canvas → Layers and Layers → canvas selection is bidirectional;
-- editor overlays are excluded from mutation observation;
-- selected runtime values re-emit after real product mutation/HMR.
+M2 introduces a safe fast path without creating a second styling state:
 
-#### Framer-like Properties M1
-Current editable draft controls include:
-- direct text when bounded complete direct text is available;
-- width/height/min/max;
-- display/position;
-- flex direction/wrap/alignment/justification;
-- gap/grid columns;
-- all padding and margin sides;
-- font family/size/weight/line-height/tracking/alignment/color;
-- background color/image;
-- border/radius/shadow;
-- opacity/overflow/z-index.
+> **Properties → deterministic dry-run → exact source preview → guarded atomic write → Timeline checkpoint → checkpoint-bound evidence.**
 
-Properties show real computed runtime values plus a bounded source ownership signal (`Likely / Possible / Weak / Unknown`). Source hints are explicitly evidence, not proof.
+If ownership cannot be proved, the existing Codex path remains authoritative.
 
-#### Source-authoritative Apply
-M1 does **not** inject editor-only CSS or mutate DOM as durable state.
+### M2 checkpoint identity migration
 
-`Apply`:
-1. collects bounded property deltas;
-2. builds a Visual Editor source-edit instruction;
-3. captures the same live element selection;
-4. enters the existing Prompt Queue;
-5. preserves a deliberately paused backlog;
-6. otherwise is eligible for immediate dispatch;
-7. flows through existing context enrichment/source hints;
-8. uses the same Codex runtime and normal approvals;
-9. produces a real source change;
-10. HMR updates the product;
-11. normal Version Timeline + evidence processing follows.
+Implemented on the active branch:
+- exact `checkpointId` is source/evidence identity;
+- deterministic evidence is checkpoint-bound;
+- browser evidence is checkpoint-bound;
+- Fresh Review remains checkpoint-native;
+- Repair validates checkpoint freshness;
+- Timeline quality is keyed by checkpoint;
+- App stale UI and Prompt Queue overrides use checkpoint identity;
+- Ship accepts valid direct/manual checkpoints with `turnSerial = null`;
+- legacy turn-only quality is intentionally treated as unproven rather than guessed.
 
-Apply is failure-safe: drafts reset only after successful handoff.
+### M2 deterministic CSS v1
 
-Direct text is editable only when the complete direct text fits the bounded 1200-character selection field. Truncated text is deliberately routed back to Prompt/Codex rather than risking data loss.
+Implemented on the active branch:
+- native `visual_source_plan` dry-run command;
+- native `visual_source_apply` guarded apply command;
+- commands are privileged-main only; preview webview has no source-write permission;
+- direct v1 requires exactly one changed property;
+- stable safe element `id` is required;
+- only one exact rightmost `#id`-owned plain-CSS literal declaration is eligible;
+- shared class/pseudo/comma/responsive ambiguity falls back to Codex;
+- token-backed `var(...)` source falls back until scope UI exists;
+- dry-run returns exact path/selector/property/line/range/fingerprint/before/after;
+- Properties shows exact before/after source preview plus **Apply source / Use Codex / Reset**;
+- changing draft invalidates the prepared plan;
+- apply replans and verifies path + fingerprint + source range again;
+- canonical project containment is required;
+- symlink traversal is refused;
+- source write uses create-new temp + sync + permission preservation + atomic rename;
+- malformed CSS values are rejected (control chars, `;`, braces, comments, unmatched quotes/brackets/parentheses, unsupported raw escapes);
+- direct path is disabled while Codex/post-turn/verification/review/timeline/Prompt Queue activity could race the repository;
+- one successful direct edit creates one `Visual edit · <property>` Timeline checkpoint;
+- previous browser evidence is invalidated;
+- post-edit verification uses `source-transaction` provenance and the same project-level execution-consent boundary;
+- browser evidence is captured against the exact new checkpoint when appropriate;
+- failed direct-edit verification can enter the bounded auto-repair path only when Auto Repair is explicitly enabled.
 
-#### Shared visual-context trust boundary
-All PreviewSelection packets — legacy Select and Visual Editor — are centrally normalized before becoming prompt context:
-- bounded URL/tag/id/classes/role/name/text/selector/parent;
-- finite geometry;
-- bounded style count/key/value lengths;
-- control characters stripped.
+### M2 current Definition of Done
 
-### M1 Definition of Done
-M1 is complete when the final merged head has:
-- green TypeScript/source contracts;
-- green regression tests;
-- green production Vite build;
-- green `cargo test --all-targets` on `macos-15-intel` / x86_64;
-- real Layers projection;
-- bidirectional canvas/Layers selection;
-- real computed Properties;
-- source-confidence signal;
-- text + core style draft editing;
-- source-authoritative Apply through normal Codex/Timeline/evidence flow;
-- HMR-selected-property refresh;
-- legacy Select/Browser Evidence preserved;
-- implementation/master/deep specs updated.
+PR #37 may merge only when the final head has:
+- green source/type contracts;
+- green Node regression tests including checkpoint identity and direct-edit orchestration;
+- green Vite production build;
+- green Rust tests on Intel runner;
+- malformed CSS-value safety tests green;
+- preview capability still unable to invoke source-write commands;
+- exact stale-file/fingerprint guard green;
+- App freshness/queue logic fully checkpoint-first;
+- deep spec + master context updated;
+- PR body accurately describes real and not-yet-real scope.
 
-### Explicitly not M1
-- AST/token-level direct deterministic writes without Codex;
-- drag resize / spacing handles;
-- keyboard nudging;
-- multi-select;
-- drag reparent/reorder;
+### Explicitly not M2 v1
+
+- CSS variable/design-token mutation;
+- Tailwind utility mutation;
+- JSX/TSX AST mutation;
+- multi-property atomic source transaction;
+- deterministic text mutation;
+- resize/spacing canvas handles;
+- multi-select/reparent/reorder;
 - component prop/variant extraction;
 - breakpoint override authoring;
-- design-token picker UI;
-- media asset replacement UI;
-- direct file/code editor integration.
+- asset replacement.
+
+Those remain Codex-backed until their ownership can be proved with the same guarantees.
 
 ## 8. Visual Editor edit classes
 
 ### A. Deterministic edit
-High-confidence runtime property → concrete source/AST/token mapping.
+One exact source owner is proven and a bounded source transaction can preserve scope.
 
-Examples:
-- known CSS variable;
-- Tailwind spacing token;
-- literal style prop;
-- component text;
-- known design-token reference.
+Current real v1 example:
+- one literal plain-CSS property in one exact stable `#id` rule.
 
-Apply direct source patch + preview update + Timeline checkpoint.
+Future examples:
+- explicit design-token owner with chosen scope;
+- safe Tailwind utility;
+- literal JSX style/primitive prop;
+- AST-proven direct text.
 
 ### B. Assisted deterministic edit
-Several plausible source locations or responsive/token implications.
+Several valid owners/scopes exist, but Monument can make the ambiguity explicit.
 
-Show a compact proposed change or one concrete choice, then patch source.
+Examples:
+- instance vs design token/global;
+- base vs responsive override;
+- one component prop vs shared component default.
+
+Show one compact scope decision, then perform a deterministic transaction.
 
 ### C. Codex edit
 Structural reasoning is required or source ownership is not deterministic.
 
-Property-panel/direct-manipulation intent becomes precise structured Codex context. **M1 implements this safe source-authoritative Codex edit path for property changes.**
+Property/direct-manipulation intent becomes precise structured Codex context. M1 already implements this safe source-authoritative fallback.
 
 **Never maintain a second hidden styling system. Source remains authoritative.**
 
-## 9. Next gate after M1 — Deterministic Source Transactions
+## 9. Next gate — M2.1 / M2.2
 
 Priority order:
-1. source styling ownership classification;
-2. CSS variables / design tokens;
-3. literal CSS declarations;
-4. safe Tailwind utility replacement;
-5. JSX/TSX literal style / simple prop values;
-6. dry-run patch + source snippet;
-7. one atomic source transaction;
-8. Timeline/evidence invalidation and lightweight validation;
-9. retain Codex fallback for ambiguity/structural edits.
+1. CSS custom-property/design-token ownership + explicit instance/token/global scope UI;
+2. safe Tailwind utility replacement with responsive/variant ownership detection;
+3. AST-backed JSX/TSX literal `style` and primitive prop mutation;
+4. multi-property transaction planning as one atomic Timeline checkpoint;
+5. AST-proven direct text replacement;
+6. richer source-diff preview and per-edit undo metadata;
+7. ownership/source-plan caching for low-latency repeated edits;
+8. framework adapters for CSS Modules and common styled systems;
+9. canvas resize/spacing/position handles routed through the same transaction engine;
+10. multi-select/alignment/distribution and asset workflows.
 
-Then continue toward:
-- design-system-aware controls;
-- component props/variants;
-- responsive breakpoint editing;
-- canvas resize/spacing/direct-manipulation handles;
-- multi-select/alignment/distribution;
-- asset replacement;
-- stronger visual/browser QA around editor transactions.
+Then deepen browser/viewport/visual QA around deterministic editor transactions.
 
 ## 10. Required future gates after Visual Editor
 
@@ -389,11 +392,11 @@ For every major PR:
 
 ## 13. Current priority order
 
-1. Finish Visual Editor M1 final x86_64 CI and merge PR #34.
-2. Publish immutable Intel **alpha.8** with Visual Editor M1.
-3. Start Visual Editor M2 — deterministic source transactions.
-4. Add design-token/Tailwind/component-prop/responsive intelligence.
-5. Add direct manipulation / multi-select / asset workflows.
+1. Finish Visual Editor M2 final CI and merge PR #37.
+2. Publish immutable Intel **alpha.9** only from a green merged M2 head.
+3. M2.1: design-token/CSS-variable scope-aware transactions.
+4. M2.2: Tailwind + JSX/TSX AST-backed transactions.
+5. Add canvas direct manipulation / multi-select / asset workflows on the same source transaction architecture.
 6. Deepen browser/viewport/visual QA around visual editing.
 7. Reliability/recovery.
 8. Commercial signed/notarized distribution.
