@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { EditorSourceOwnership } from './ownership';
 import type { VisualPropertyChange } from './intent';
+import type { PreparedVisualSourceEdit } from './sourceTransaction';
 import type { EditorLayer, EditorSelection } from './types';
 
 type PropertySpec = { label: string; key: string; editable?: boolean; wide?: boolean };
@@ -98,13 +99,28 @@ function PropertyGroup({ group, selection, draft, onChange }: {
   );
 }
 
-export function PropertiesPanel({ selection, layer, ownership, applying, applyMessage, onApply }: {
+export function PropertiesPanel({
+  selection,
+  layer,
+  ownership,
+  applying,
+  applyMessage,
+  sourcePreview,
+  onApply,
+  onConfirmSource,
+  onUseCodex,
+  onDismissSourcePreview,
+}: {
   selection: EditorSelection | null;
   layer: EditorLayer | null;
   ownership: EditorSourceOwnership | null;
   applying: boolean;
   applyMessage: string | null;
+  sourcePreview: PreparedVisualSourceEdit | null;
   onApply: (changes: VisualPropertyChange[]) => Promise<boolean>;
+  onConfirmSource: () => Promise<boolean>;
+  onUseCodex: () => Promise<boolean>;
+  onDismissSourcePreview: () => void;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(selection, layer));
 
@@ -127,11 +143,25 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
       : styleChanges;
   }, [draft, layer, selection]);
 
-  const changeDraft = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
-  const reset = () => setDraft(initialDraft(selection, layer));
+  const changeDraft = (key: string, value: string) => {
+    if (sourcePreview) onDismissSourcePreview();
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+  const reset = () => {
+    if (sourcePreview) onDismissSourcePreview();
+    setDraft(initialDraft(selection, layer));
+  };
   const applyChanges = async () => {
     if (!changes.length || applying) return;
     if (await onApply(changes)) setDraft(initialDraft(selection, layer));
+  };
+  const confirmSource = async () => {
+    if (!sourcePreview || applying) return;
+    if (await onConfirmSource()) setDraft(initialDraft(selection, layer));
+  };
+  const useCodex = async () => {
+    if (!sourcePreview || applying) return;
+    if (await onUseCodex()) setDraft(initialDraft(selection, layer));
   };
 
   if (!selection) {
@@ -187,16 +217,36 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
 
         {GROUPS.map((group) => <PropertyGroup key={group.title} group={group} selection={selection} draft={draft} onChange={changeDraft} />)}
 
+        {sourcePreview ? (
+          <section className="property-direct-source-card">
+            <div className="property-direct-source-head">
+              <div><strong>Direct source edit</strong><span>Deterministic · {Math.round(sourcePreview.plan.confidence * 100)}%</span></div>
+              <code>{sourcePreview.plan.sourcePath}:{sourcePreview.plan.line}</code>
+            </div>
+            <div className="property-source-diff">
+              <div><span>Before</span><pre>{sourcePreview.plan.previewBefore}</pre></div>
+              <div><span>After</span><pre>{sourcePreview.plan.previewAfter}</pre></div>
+            </div>
+            <p>Monument proved one stable <code>#{selection.id}</code>-owned literal CSS declaration. Apply re-checks the exact file fingerprint and source range before one atomic write.</p>
+          </section>
+        ) : null}
+
         <section className="property-source-note">
           <strong>Source-authoritative editing</strong>
-          <span>Editable fields do not mutate the preview directly. Apply sends the requested property delta plus this live selection through Monument’s normal source/Codex/Timeline/evidence pipeline.</span>
+          <span>Apply first attempts a bounded deterministic source transaction. Only exact single-owner edits are eligible; ambiguous, shared, structural, text and multi-property changes keep using the normal Codex → Timeline → evidence path.</span>
         </section>
       </div>
 
-      <div className={`property-apply-bar ${changes.length ? 'dirty' : ''}`}>
-        <div><strong>{changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong><span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit a property above')}</span></div>
+      <div className={`property-apply-bar ${changes.length ? 'dirty' : ''} ${sourcePreview ? 'direct-ready' : ''}`}>
+        <div>
+          <strong>{sourcePreview ? 'Direct edit ready' : changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong>
+          <span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit a property above')}</span>
+        </div>
         {changes.length ? <button type="button" className="secondary" disabled={applying} onClick={reset}>Reset</button> : null}
-        <button type="button" disabled={!changes.length || applying} onClick={() => void applyChanges()}>{applying ? 'Queueing…' : 'Apply'}</button>
+        {sourcePreview ? <button type="button" className="secondary" disabled={applying} onClick={() => void useCodex()}>Use Codex</button> : null}
+        <button type="button" disabled={!changes.length || applying} onClick={() => void (sourcePreview ? confirmSource() : applyChanges())}>
+          {applying ? (sourcePreview ? 'Applying…' : 'Planning…') : sourcePreview ? 'Apply source' : 'Apply'}
+        </button>
       </div>
     </aside>
   );
