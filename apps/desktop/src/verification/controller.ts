@@ -29,7 +29,7 @@ export interface VerificationEvidence {
   /** Exact saved source identity. turnSerial is provenance only. */
   checkpointId: string | null;
   turnSerial: number;
-  trigger: 'codex-turn' | 'manual';
+  trigger: 'codex-turn' | 'source-transaction' | 'manual';
   status: 'running' | 'passed' | 'failed' | 'no-checks' | 'error';
   startedAt: number;
   finishedAt: number | null;
@@ -179,9 +179,10 @@ export async function runVerification({
     return evidence;
   }
 
-  // Package scripts are repository code. A Codex completion is never permission to run them.
-  // Automatic checks remain off until the user explicitly enables them for this project.
-  if (trigger === 'codex-turn' && !includeManual && !(await isAutoVerificationEnabled(projectId))) {
+  // Package scripts are repository code. Neither a Codex completion nor a direct visual source edit
+  // is permission to execute them. Non-manual post-change checks remain off until the project-level
+  // automatic verification consent is explicitly enabled.
+  if (trigger !== 'manual' && !includeManual && !(await isAutoVerificationEnabled(projectId))) {
     evidence.status = 'no-checks';
     evidence.permissionRequired = true;
     evidence.finishedAt = Date.now();
