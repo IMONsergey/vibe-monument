@@ -187,6 +187,21 @@ fn relative_path(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
+fn token_boundary(byte: Option<u8>) -> bool {
+    byte.is_none_or(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'-' | b'_'))
+}
+
+fn exact_usage_offsets(content: &str, token: &str) -> Vec<usize> {
+    let needle = format!("var({token}");
+    content
+        .match_indices(&needle)
+        .filter_map(|(offset, _)| {
+            let token_end = offset + needle.len();
+            token_boundary(content.as_bytes().get(token_end).copied()).then_some(offset)
+        })
+        .collect()
+}
+
 fn inspect(root: &Path, token: &str) -> Result<TokenScopeInspection, String> {
     let token = validate_token_name(token)?;
     let mut files = Vec::new();
@@ -198,7 +213,6 @@ fn inspect(root: &Path, token: &str) -> Result<TokenScopeInspection, String> {
     let mut definition_count = 0usize;
     let mut usage_count = 0usize;
     let mut truncated = files.len() >= MAX_CSS_FILES || total_bytes >= MAX_TOTAL_BYTES;
-    let usage_needle = format!("var({token}");
 
     for path in files {
         let Ok(content) = fs::read_to_string(&path) else {
@@ -210,10 +224,7 @@ fn inspect(root: &Path, token: &str) -> Result<TokenScopeInspection, String> {
             let after = offset + token.len();
             let selector = selector_before(&content, offset);
             if declaration_value(&content, after).is_some()
-                && content[..offset]
-                    .chars()
-                    .next_back()
-                    .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
+                && token_boundary(content[..offset].bytes().next_back())
             {
                 definition_count += 1;
                 if definitions.len() < MAX_DEFINITIONS {
@@ -230,7 +241,7 @@ fn inspect(root: &Path, token: &str) -> Result<TokenScopeInspection, String> {
             }
         }
 
-        for (offset, _) in content.match_indices(&usage_needle) {
+        for offset in exact_usage_offsets(&content, &token) {
             usage_count += 1;
             if usages.len() < MAX_USAGES {
                 usages.push(TokenUsage {
@@ -324,6 +335,20 @@ mod tests {
         assert_eq!(result.definition_count, 1);
         assert_eq!(result.usage_count, 2);
         assert!(result.recommendation.contains("Never mutate it implicitly"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn does_not_count_longer_token_names_as_usage() {
+        let root = fixture();
+        fs::write(
+            root.join("tokens.css"),
+            ":root { --space: 8px; --space-large: 24px; }\n.a { gap: var(--space-large); }\n.b { gap: var(--space); }\n",
+        )
+        .expect("write");
+        let result = inspect(&root, "--space").expect("inspect");
+        assert_eq!(result.definition_count, 1);
+        assert_eq!(result.usage_count, 1);
         let _ = fs::remove_dir_all(root);
     }
 
