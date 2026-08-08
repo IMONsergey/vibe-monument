@@ -47,10 +47,14 @@ function cleanDraft(value: string, limit = MAX_DRAFT_VALUE): string {
   return value.replace(/[\r\n\t]+/g, ' ').slice(0, limit);
 }
 
+function canEditText(selection: EditorSelection | null, layer: EditorLayer | null): boolean {
+  return Boolean(selection && layer?.editable.text && !selection.directTextTruncated && selection.directText.length > 0);
+}
+
 function initialDraft(selection: EditorSelection | null, layer: EditorLayer | null): Record<string, string> {
   if (!selection) return {};
   const values = Object.fromEntries([...EDITABLE_KEYS].map((key) => [key, selection.styles[key] || '']));
-  if (layer?.editable.text) values[TEXT_KEY] = layer.text || selection.text || '';
+  if (canEditText(selection, layer)) values[TEXT_KEY] = selection.directText;
   return values;
 }
 
@@ -100,7 +104,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
   ownership: EditorSourceOwnership | null;
   applying: boolean;
   applyMessage: string | null;
-  onApply: (changes: VisualPropertyChange[]) => Promise<void>;
+  onApply: (changes: VisualPropertyChange[]) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>(() => initialDraft(selection, layer));
 
@@ -115,8 +119,8 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
       const after = (draft[property] ?? before).trim();
       return after && after !== before.trim() ? [{ property, before, after }] : [];
     });
-    if (!layer?.editable.text) return styleChanges;
-    const beforeText = layer.text || selection.text || '';
+    if (!canEditText(selection, layer)) return styleChanges;
+    const beforeText = selection.directText;
     const afterText = (draft[TEXT_KEY] ?? beforeText).trim();
     return afterText && afterText !== beforeText.trim()
       ? [{ property: TEXT_KEY, before: beforeText, after: afterText }, ...styleChanges]
@@ -127,8 +131,7 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
   const reset = () => setDraft(initialDraft(selection, layer));
   const applyChanges = async () => {
     if (!changes.length || applying) return;
-    await onApply(changes);
-    setDraft(initialDraft(selection, layer));
+    if (await onApply(changes)) setDraft(initialDraft(selection, layer));
   };
 
   if (!selection) {
@@ -139,6 +142,8 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
       </aside>
     );
   }
+
+  const textEditable = canEditText(selection, layer);
 
   return (
     <aside className="visual-properties-panel" aria-label="Properties">
@@ -164,18 +169,20 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
           {ownership?.alternatives.length ? <details><summary>{ownership.alternatives.length} alternative candidate{ownership.alternatives.length === 1 ? '' : 's'}</summary><div>{ownership.alternatives.map((hint) => <code key={`${hint.path}:${hint.line}`}>{hint.path}:{hint.line} · {hint.score}</code>)}</div></details> : null}
         </section>
 
-        {layer?.editable.text ? (
+        {textEditable ? (
           <section className="property-group property-content-group">
             <div className="property-group-title">Content</div>
-            <label className={`property-text-field ${(draft[TEXT_KEY] ?? '').trim() !== (layer.text || selection.text || '').trim() ? 'dirty' : ''}`}>
+            <label className={`property-text-field ${(draft[TEXT_KEY] ?? '').trim() !== selection.directText.trim() ? 'dirty' : ''}`}>
               <span>Text</span>
               <textarea
-                value={draft[TEXT_KEY] ?? layer.text ?? selection.text}
+                value={draft[TEXT_KEY] ?? selection.directText}
                 maxLength={MAX_TEXT_VALUE}
                 onChange={(event) => changeDraft(TEXT_KEY, event.target.value.slice(0, MAX_TEXT_VALUE))}
               />
             </label>
           </section>
+        ) : selection.directTextTruncated ? (
+          <div className="property-text-warning">Direct text exceeds the safe editor limit. Use the prompt for this text change so Codex can inspect the complete source before editing.</div>
         ) : null}
 
         {GROUPS.map((group) => <PropertyGroup key={group.title} group={group} selection={selection} draft={draft} onChange={changeDraft} />)}
