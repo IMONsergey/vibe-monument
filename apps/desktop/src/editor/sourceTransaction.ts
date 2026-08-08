@@ -89,10 +89,18 @@ export function registerVisualSourceCoordinator(next: VisualSourceCoordinator): 
 }
 
 function selectorNeedsDeeperParsing(selector: string): boolean {
-  // Native CSS v1 already refuses comma/pseudo ambiguity. Until native selector ownership
-  // is a full parser, also keep attribute selectors on the Codex path so strings such as
-  // [href="#hero"] can never be mistaken for an actual #hero ID owner.
-  return selector.includes('[') || selector.includes(']');
+  // Direct CSS v1 intentionally accepts only simple, literal selector syntax. Native source
+  // ownership already refuses comma/pseudo ambiguity; keep attributes, comments, escapes and
+  // function/string syntax on the Codex path until selector ownership is parser-backed end to end.
+  return selector.includes('[')
+    || selector.includes(']')
+    || selector.includes('/*')
+    || selector.includes('*/')
+    || selector.includes('\\')
+    || selector.includes('"')
+    || selector.includes("'")
+    || selector.includes('(')
+    || selector.includes(')');
 }
 
 export async function planVisualSourceEdit(
@@ -105,7 +113,7 @@ export async function planVisualSourceEdit(
   }
   const decision = await coordinator.plan(selection, changes);
   if (decision.kind === 'deterministic' && selectorNeedsDeeperParsing(decision.prepared.plan.selector)) {
-    return { kind: 'fallback', reason: 'Attribute-selector ownership needs deeper source parsing, so Monument will use Codex for this edit.' };
+    return { kind: 'fallback', reason: 'This selector needs deeper source parsing, so Monument will use Codex for this edit.' };
   }
   return decision;
 }
