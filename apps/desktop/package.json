@@ -1,14 +1,15 @@
 {
   "name": "monument-desktop",
   "private": true,
-  "version": "0.2.0-alpha.8",
+  "version": "0.2.0-alpha.10",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 4173",
+    "prepare:icon": "node scripts/prepare_app_icon.mjs",
+    "dev": "npm run prepare:icon && vite --host 127.0.0.1 --port 4173",
     "check": "tsc --noEmit && npm run check:native",
-    "check:native": "node scripts/check_native_source.mjs && node scripts/check_token_editing.mjs && node scripts/check_markup_editing.mjs",
+    "check:native": "node scripts/check_native_source.mjs && node scripts/check_token_editing.mjs && node scripts/check_markup_editing.mjs && node scripts/check_content_editing.mjs",
     "test": "node --test tests/*.test.js",
-    "build": "tsc --noEmit && vite build"
+    "build": "npm run prepare:icon && tsc --noEmit && vite build"
   },
   "dependencies": {
     "react": "^19.0.0",
