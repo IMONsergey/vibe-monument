@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 const MAX_SHIP_FILES: usize = 400;
 const MAX_COMMIT_MESSAGE: usize = 180;
@@ -34,7 +34,7 @@ fn canonical_project(project_path: &str) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+fn git_output(root: &Path, args: &[&str]) -> Result<Output, String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(root)
@@ -49,7 +49,11 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
             format!("git {} failed: {stderr}", args.join(" "))
         });
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(output)
+}
+
+fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+    Ok(String::from_utf8_lossy(&git_output(root, args)?.stdout).trim().to_string())
 }
 
 fn safe_status_path(value: &str) -> Option<String> {
@@ -60,30 +64,28 @@ fn safe_status_path(value: &str) -> Option<String> {
     Some(normalized)
 }
 
-fn porcelain_paths(root: &Path, cached: bool) -> Result<Vec<String>, String> {
-    let args = if cached {
-        vec!["diff", "--cached", "--name-only", "--diff-filter=ACMR"]
-    } else {
-        vec!["status", "--porcelain=v1", "--untracked-files=all"]
-    };
-    let output = git(root, &args)?;
-    let mut paths = Vec::new();
-    if cached {
-        for line in output.lines() {
-            if let Some(path) = safe_status_path(line.trim()) {
-                paths.push(path);
-            }
-        }
-    } else {
-        for line in output.lines() {
-            if line.len() < 4 { continue; }
-            let raw = line[3..].trim();
-            let raw = raw.rsplit(" -> ").next().unwrap_or(raw);
-            if let Some(path) = safe_status_path(raw.trim_matches('"')) {
-                paths.push(path);
-            }
-        }
-    }
+fn nul_paths(bytes: &[u8]) -> Vec<String> {
+    bytes
+        .split(|byte| *byte == 0)
+        .filter(|chunk| !chunk.is_empty())
+        .filter_map(|chunk| safe_status_path(&String::from_utf8_lossy(chunk)))
+        .collect()
+}
+
+fn staged_paths(root: &Path) -> Result<Vec<String>, String> {
+    let output = git_output(root, &["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", "--"])?;
+    let mut paths = nul_paths(&output.stdout);
+    paths.sort();
+    paths.dedup();
+    paths.truncate(MAX_SHIP_FILES);
+    Ok(paths)
+}
+
+fn changed_paths(root: &Path) -> Result<Vec<String>, String> {
+    let tracked = git_output(root, &["diff", "HEAD", "--name-only", "-z", "--"])?;
+    let untracked = git_output(root, &["ls-files", "--others", "--exclude-standard", "-z", "--"])?;
+    let mut paths = nul_paths(&tracked.stdout);
+    paths.extend(nul_paths(&untracked.stdout));
     paths.sort();
     paths.dedup();
     paths.truncate(MAX_SHIP_FILES);
@@ -93,8 +95,8 @@ fn porcelain_paths(root: &Path, cached: bool) -> Result<Vec<String>, String> {
 fn plan(root: &Path) -> Result<GitShipPlan, String> {
     let branch = git(root, &["branch", "--show-current"])?;
     let remote = git(root, &["remote", "get-url", "origin"]).ok().filter(|value| !value.is_empty());
-    let changed_files = porcelain_paths(root, false)?;
-    let staged_files = porcelain_paths(root, true)?;
+    let changed_files = changed_paths(root)?;
+    let staged_files = staged_paths(root)?;
     let reason = if branch.is_empty() {
         Some("Detached HEAD cannot be committed through Monument Ship yet.".to_string())
     } else if !staged_files.is_empty() {
@@ -135,8 +137,6 @@ pub fn git_ship_commit(project_path: String, message: String) -> Result<GitShipC
     }
     let message: String = message.chars().take(MAX_COMMIT_MESSAGE).collect();
 
-    // The index must be clean by plan() precondition. Stage exactly the paths that
-    // were shown to the user; never stage ignored files or arbitrary repository paths.
     let mut add = Command::new("git");
     add.arg("add").arg("--");
     for path in &before.changed_files {
@@ -151,8 +151,6 @@ pub fn git_ship_commit(project_path: String, message: String) -> Result<GitShipC
         return Err(format!("Could not stage Ship files: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
 
-    // Respect repository commit hooks. Ship is not allowed to bypass a project's
-    // own commit policy just because the Monument evidence gate is green.
     let commit = Command::new("git")
         .args(["commit", "-m", &message])
         .current_dir(&root)
@@ -160,8 +158,6 @@ pub fn git_ship_commit(project_path: String, message: String) -> Result<GitShipC
         .output()
         .map_err(|error| format!("Could not create Ship commit: {error}"))?;
     if !commit.status.success() {
-        // plan() guaranteed a clean index before staging, so this restores that
-        // exact pre-Ship index state while leaving working-tree changes intact.
         let _ = Command::new("git").args(["reset", "--mixed", "HEAD"]).current_dir(&root).output();
         return Err(format!("Ship commit failed: {}", String::from_utf8_lossy(&commit.stderr).trim()));
     }
@@ -176,13 +172,19 @@ pub fn git_ship_commit(project_path: String, message: String) -> Result<GitShipC
 
 #[cfg(test)]
 mod tests {
-    use super::{safe_status_path, MAX_COMMIT_MESSAGE, MAX_SHIP_FILES};
+    use super::{nul_paths, safe_status_path, MAX_COMMIT_MESSAGE, MAX_SHIP_FILES};
 
     #[test]
     fn ship_paths_cannot_escape_repository() {
         assert_eq!(safe_status_path("src/App.tsx"), Some("src/App.tsx".into()));
         assert_eq!(safe_status_path("../outside"), None);
         assert_eq!(safe_status_path("/tmp/outside"), None);
+    }
+
+    #[test]
+    fn nul_paths_support_spaces_and_unicode() {
+        let paths = nul_paths("src/a file.ts\0src/Привет.tsx\0".as_bytes());
+        assert_eq!(paths, vec!["src/a file.ts", "src/Привет.tsx"]);
     }
 
     #[test]
