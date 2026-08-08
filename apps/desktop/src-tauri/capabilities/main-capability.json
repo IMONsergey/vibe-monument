@@ -24,6 +24,7 @@
     "allow-preview-clear-browser-evidence",
     "allow-preview-reload",
     "allow-preview-close",
+    "allow-preview-editor-set-active",
     "allow-preview-editor-request-tree",
     "allow-preview-editor-select",
     "allow-preview-editor-hover",
