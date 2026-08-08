@@ -1,3 +1,4 @@
+import { clearSourceTransactionDirty } from '../editor/transactionState';
 import type { ProjectInspection } from '../types';
 import {
   timelineBack,
@@ -91,6 +92,7 @@ export async function checkpointCompletedTurn({
   const current = state.checkpoints.find((checkpoint) => checkpoint.id === state.currentCheckpointId) ?? null;
   if (!state.dirty && current?.turnSerial === turnSerial) {
     pendingPrompts.delete(project.id);
+    clearSourceTransactionDirty(project.id);
     return current;
   }
 
@@ -104,6 +106,7 @@ export async function checkpointCompletedTurn({
     turnSerial,
   });
   pendingPrompts.delete(project.id);
+  clearSourceTransactionDirty(project.id);
   return checkpoint;
 }
 
@@ -130,11 +133,13 @@ export async function saveTimelineVersion(
   title = 'Saved version',
 ): Promise<TimelineCheckpoint> {
   activeTimelineProject = project;
-  return timelineSnapshot(project.rootPath, timelineProjectId(project), {
+  const checkpoint = await timelineSnapshot(project.rootPath, timelineProjectId(project), {
     kind: 'manual',
     title: compactPrompt(title, 76) || 'Saved version',
     turnSerial: null,
   });
+  clearSourceTransactionDirty(project.id);
+  return checkpoint;
 }
 
 export async function readTimelineStatus(project: ProjectInspection): Promise<TimelineStatus> {
@@ -147,7 +152,9 @@ export async function restoreTimelineVersion(
   checkpointId: string,
 ): Promise<TimelineRestoreResult> {
   activeTimelineProject = project;
-  return notifyTimelineRestored(await timelineRestore(project.rootPath, timelineProjectId(project), checkpointId));
+  const result = await timelineRestore(project.rootPath, timelineProjectId(project), checkpointId);
+  clearSourceTransactionDirty(project.id);
+  return notifyTimelineRestored(result);
 }
 
 export async function backTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
@@ -167,12 +174,15 @@ export async function backTimeline(project: ProjectInspection): Promise<Timeline
       forwardCheckpointId: next?.id ?? null,
     };
   }
+  clearSourceTransactionDirty(project.id);
   return notifyTimelineRestored(result);
 }
 
 export async function forwardTimeline(project: ProjectInspection): Promise<TimelineRestoreResult> {
   activeTimelineProject = project;
-  return notifyTimelineRestored(await timelineForward(project.rootPath, timelineProjectId(project)));
+  const result = await timelineForward(project.rootPath, timelineProjectId(project));
+  clearSourceTransactionDirty(project.id);
+  return notifyTimelineRestored(result);
 }
 
 export async function compareTimelineVersions(
