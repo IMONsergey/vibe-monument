@@ -44,6 +44,7 @@ interface CompetingCssPlan {
 }
 
 const MAX_VALUE = 300;
+const NO_STATIC_MARKUP_OWNER = 'no deterministic jsx inline-style or tailwind utility owner';
 
 function clean(value: string, limit = MAX_VALUE): string {
   return value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -74,6 +75,22 @@ function markupChange(change: VisualPropertyChange) {
   };
 }
 
+async function nativeMarkupProbe(
+  projectPath: string,
+  selection: EditorSelection,
+  change: VisualPropertyChange,
+): Promise<VisualMarkupEditProbe> {
+  return invokeNative<VisualMarkupEditProbe>('project_markup_edit_probe', {
+    projectPath,
+    selection: markupSelection(selection),
+    change: markupChange(change),
+  }).catch((error) => ({
+    mode: 'codex' as const,
+    reason: `JSX/Tailwind ownership preflight unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    operation: null,
+  }));
+}
+
 async function competingCssOwnership(
   projectPath: string,
   selection: EditorSelection,
@@ -90,6 +107,16 @@ async function competingCssOwnership(
   }));
 }
 
+function inlineStyleBlocksStylesheetFallback(probe: VisualMarkupEditProbe): boolean {
+  if (probe.mode !== 'codex') return false;
+  const reason = probe.reason.toLowerCase();
+  if (reason.includes(NO_STATIC_MARKUP_OWNER)) return false;
+  return reason.includes('inline style')
+    || reason.includes('inline-style')
+    || reason.includes('jsx style')
+    || reason.includes('style={{');
+}
+
 export async function probeVisualMarkupEdit(
   selection: EditorSelection,
   change: VisualPropertyChange,
@@ -98,24 +125,25 @@ export async function probeVisualMarkupEdit(
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) return null;
 
-  // CSS ownership outranks markup ownership. Unknown CSS ownership also fails closed: a native
-  // preflight error must never be interpreted as proof that no CSS owner exists.
-  const cssPlan = await competingCssOwnership(projectPath, selection, change);
-  if (cssPlan.mode !== 'codex') return {
-    mode: 'codex',
-    reason: cssPlan.reason || 'CSS ownership is present or could not be excluded safely.',
-    operation: null,
-  };
+  // First establish cascade safety. A proven JSX inline-style literal owns the property above any
+  // stylesheet/Tailwind rule. A dynamic inline-style candidate is a hard Codex boundary because
+  // a direct stylesheet mutation could be visually ineffective or mutate the wrong owner.
+  const markup = await nativeMarkupProbe(projectPath, selection, change);
+  if (markup.mode === 'deterministic' && markup.operation?.lane === 'jsx-style') return markup;
+  if (inlineStyleBlocksStylesheetFallback(markup)) return markup;
 
-  return invokeNative<VisualMarkupEditProbe>('project_markup_edit_probe', {
-    projectPath,
-    selection: markupSelection(selection),
-    change: markupChange(change),
-  }).catch((error) => ({
-    mode: 'codex' as const,
-    reason: `JSX/Tailwind ownership preflight unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    operation: null,
-  }));
+  // Tailwind and plain stylesheet ownership can compete. Existing M2.1 CSS proof wins over the
+  // class lane; CSS preflight failure is fail-closed and therefore also blocks Tailwind direct mode.
+  const cssPlan = await competingCssOwnership(projectPath, selection, change);
+  if (cssPlan.mode !== 'codex') {
+    return {
+      mode: 'codex',
+      reason: cssPlan.reason || 'CSS ownership is present or could not be excluded safely.',
+      operation: null,
+    };
+  }
+
+  return markup;
 }
 
 export async function previewVisualMarkupTransaction(
