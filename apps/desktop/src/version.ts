@@ -1,1 +1,1 @@
-export const MONUMENT_VERSION = '0.2.0-alpha.8';
+export const MONUMENT_VERSION = '0.2.0-alpha.10';
