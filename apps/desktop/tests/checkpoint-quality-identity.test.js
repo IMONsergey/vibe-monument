@@ -3,8 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 const timeline = await readFile(new URL('../src/timeline/controller.ts', import.meta.url), 'utf8');
+const quality = await readFile(new URL('../src/timeline/quality.ts', import.meta.url), 'utf8');
+const timelinePanel = await readFile(new URL('../src/components/VersionTimelinePanel.tsx', import.meta.url), 'utf8');
 const verification = await readFile(new URL('../src/verification/controller.ts', import.meta.url), 'utf8');
 const browser = await readFile(new URL('../src/browser/evidence.ts', import.meta.url), 'utf8');
+const review = await readFile(new URL('../src/review/controller.ts', import.meta.url), 'utf8');
 const repair = await readFile(new URL('../src/repair/controller.ts', import.meta.url), 'utf8');
 const ship = await readFile(new URL('../src/ship/controller.ts', import.meta.url), 'utf8');
 
@@ -14,13 +17,30 @@ test('Timeline exposes exact clean checkpoint identity independently from Codex 
   assert.ok(timeline.includes('checkpoint.id === state.currentCheckpointId'));
 });
 
-test('deterministic and browser evidence persist checkpoint identity', () => {
+test('Timeline quality store is keyed by checkpoint while turnSerial remains provenance', () => {
+  assert.ok(quality.includes('checkpointId: string'));
+  assert.ok(quality.includes('turnSerial: number | null'));
+  assert.ok(quality.includes('const key = checkpointKey(checkpointId)'));
+  assert.ok(quality.includes('export function timelineQualityForCheckpoint'));
+  assert.ok(quality.includes('Legacy turn-keyed entries'));
+  assert.ok(timelinePanel.includes('timelineQualityForCheckpoint(quality, checkpoint.id)'));
+  assert.ok(!timelinePanel.includes('timelineQualityForTurn(quality, checkpoint.turnSerial)'));
+});
+
+test('deterministic, browser and review quality persist checkpoint identity', () => {
   assert.ok(verification.includes('checkpointId: string | null'));
   assert.ok(verification.includes('currentTimelineCheckpoint(projectId)'));
-  assert.ok(verification.includes('checkpointId: resolvedCheckpointId'));
+  assert.ok(verification.includes('evidence.checkpointId,'));
+  assert.ok(verification.includes('evidence.turnSerial > 0 ? evidence.turnSerial : null'));
+
   assert.ok(browser.includes('capturedForCheckpointId: string | null'));
   assert.ok(browser.includes('currentTimelineCheckpoint(projectId)'));
-  assert.ok(browser.includes('capturedForCheckpointId: resolvedCheckpointId'));
+  assert.ok(browser.includes('resolvedCheckpointId,'));
+  assert.ok(browser.includes('resolvedTurnSerial > 0 ? resolvedTurnSerial : null'));
+
+  assert.ok(review.includes('record.checkpointId,'));
+  assert.ok(review.includes('record.turnSerial,'));
+  assert.ok(review.includes('Codex turn provenance'));
 });
 
 test('repair request schema carries checkpoint identity even while legacy turn fallback remains', () => {
