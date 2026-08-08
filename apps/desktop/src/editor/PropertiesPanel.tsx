@@ -189,14 +189,14 @@ export function PropertiesPanel({ selection, layer, ownership, applying, applyMe
 
         <section className="property-source-note">
           <strong>Source-authoritative editing</strong>
-          <span>Editable fields do not mutate the preview directly. Apply sends the requested property delta plus this live selection through Monument’s normal source/Codex/Timeline/evidence pipeline.</span>
+          <span>Apply first attempts a bounded atomic source transaction only when Monument can prove one literal CSS owner. Tokens, responsive scopes, multiple owners, text and structural edits automatically fall back to the normal Codex path. Every direct edit becomes a Version Timeline generation and invalidates prior evidence.</span>
         </section>
       </div>
 
       <div className={`property-apply-bar ${changes.length ? 'dirty' : ''}`}>
         <div><strong>{changes.length ? `${changes.length} change${changes.length === 1 ? '' : 's'}` : 'No changes'}</strong><span>{applyMessage || (changes.length ? 'Ready to update real source' : 'Edit a property above')}</span></div>
         {changes.length ? <button type="button" className="secondary" disabled={applying} onClick={reset}>Reset</button> : null}
-        <button type="button" disabled={!changes.length || applying} onClick={() => void applyChanges()}>{applying ? 'Queueing…' : 'Apply'}</button>
+        <button type="button" disabled={!changes.length || applying} onClick={() => void applyChanges()}>{applying ? 'Applying…' : 'Apply'}</button>
       </div>
     </aside>
   );
