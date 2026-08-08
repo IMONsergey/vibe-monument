@@ -8,6 +8,9 @@ const tauri = JSON.parse(await readFile(join(root, 'src-tauri/tauri.conf.json'),
 const cargo = await readFile(join(root, 'src-tauri/Cargo.toml'), 'utf8');
 const version = await readFile(join(root, 'src/version.ts'), 'utf8');
 const workflow = await readFile(join(root, '../../.github/workflows/monument-intel-alpha-release.yml'), 'utf8');
+const main = await readFile(join(root, 'src/main.tsx'), 'utf8');
+const commandCenter = await readFile(join(root, 'src/components/AlphaPreviewShell.tsx'), 'utf8');
+const commandCenterStyles = await readFile(join(root, 'src/styles/alpha-preview.css'), 'utf8');
 const iconSource = (await readFile(join(root, 'src-tauri/icons/preview-icon.png.b64'), 'utf8')).replace(/\s+/g, '');
 
 const expected = '0.2.0-alpha.10';
@@ -23,4 +26,20 @@ const icon = Buffer.from(iconSource, 'base64');
 if (!icon.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))) throw new Error('temporary icon payload is not PNG');
 if (!workflow.includes('x86_64-apple-darwin') || !workflow.includes('macos-15-intel')) throw new Error('Intel release target drift');
 if (!workflow.includes('lipo -archs') || !workflow.includes('hdiutil attach')) throw new Error('DMG smoke verification missing');
-console.log('Monument alpha.10 preview release contract: PASS');
+if (!workflow.includes('pull_request:') || !workflow.includes('Upload verified DMG artifact')) throw new Error('release PR must expose the verified DMG artifact');
+if (!workflow.includes("if: github.event_name != 'pull_request'")) throw new Error('PR verification must not publish/replace a GitHub release');
+for (const token of ['AlphaPreviewShell', "'./styles/alpha-preview.css'"]) {
+  if (!main.includes(token)) throw new Error(`alpha preview shell is not mounted: ${token}`);
+}
+for (const token of [
+  'Command Center', 'Open local project', 'Recheck environment', '⌘K',
+  "stateGet<string>('lastProjectPath')", 'inspectProject(lastProjectPath)',
+  'codexStatus()', 'runtimeStatus()', 'openProject()', "stateSet('lastProjectPath'",
+  'Intel x86_64 · macOS 13+',
+]) {
+  if (!commandCenter.includes(token)) throw new Error(`alpha command center contract missing ${token}`);
+}
+if (!commandCenterStyles.includes('.alpha-preview-overlay') || !commandCenterStyles.includes('.alpha-preview-health-grid')) {
+  throw new Error('alpha command center product styles are missing');
+}
+console.log('Monument alpha.10 preview release + first-run contract: PASS');
