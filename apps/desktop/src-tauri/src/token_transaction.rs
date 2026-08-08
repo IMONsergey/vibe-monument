@@ -555,6 +555,62 @@ fn simple_var_token(value: &str) -> Option<String> {
     safe_token_name(inner)
 }
 
+fn token_boundary(byte: Option<u8>) -> bool {
+    byte.is_none_or(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'-' | b'_'))
+}
+
+fn ascii_var_function_at(bytes: &[u8], offset: usize) -> bool {
+    bytes.get(offset).is_some_and(|byte| byte.eq_ignore_ascii_case(&b'v'))
+        && bytes.get(offset + 1).is_some_and(|byte| byte.eq_ignore_ascii_case(&b'a'))
+        && bytes.get(offset + 2).is_some_and(|byte| byte.eq_ignore_ascii_case(&b'r'))
+        && bytes.get(offset + 3) == Some(&b'(')
+}
+
+fn skip_var_trivia(bytes: &[u8], mut offset: usize) -> Option<usize> {
+    loop {
+        while bytes.get(offset).is_some_and(|byte| byte.is_ascii_whitespace()) {
+            offset += 1;
+        }
+        if bytes.get(offset) != Some(&b'/') || bytes.get(offset + 1) != Some(&b'*') {
+            return Some(offset);
+        }
+        offset += 2;
+        let mut closed = false;
+        while offset + 1 < bytes.len() {
+            if bytes[offset] == b'*' && bytes[offset + 1] == b'/' {
+                offset += 2;
+                closed = true;
+                break;
+            }
+            offset += 1;
+        }
+        if !closed {
+            return None;
+        }
+    }
+}
+
+fn token_usage_count(content: &str, token: &str) -> usize {
+    let bytes = content.as_bytes();
+    let token_bytes = token.as_bytes();
+    let mut count = 0usize;
+    let mut offset = 0usize;
+    while offset + 4 <= bytes.len() {
+        if ascii_var_function_at(bytes, offset) {
+            if let Some(token_start) = skip_var_trivia(bytes, offset + 4) {
+                let token_end = token_start.saturating_add(token_bytes.len());
+                if bytes.get(token_start..token_end) == Some(token_bytes)
+                    && token_boundary(bytes.get(token_end).copied())
+                {
+                    count = count.saturating_add(1);
+                }
+            }
+        }
+        offset += 1;
+    }
+    count
+}
+
 fn line_number(content: &str, offset: usize) -> usize {
     content.as_bytes()[..offset.min(content.len())]
         .iter()
@@ -674,19 +730,6 @@ fn token_definition_candidates(
         });
     }
     result
-}
-
-fn token_usage_count(content: &str, token: &str) -> usize {
-    let needle = format!("var({token}");
-    content
-        .match_indices(&needle)
-        .filter(|(offset, _)| {
-            let end = offset + needle.len();
-            content.as_bytes().get(end).is_none_or(|byte| {
-                !byte.is_ascii_alphanumeric() && !matches!(*byte, b'-' | b'_')
-            })
-        })
-        .count()
 }
 
 fn empty_probe(reason: impl Into<String>, truncated: bool) -> ProbeInternal {
@@ -855,11 +898,11 @@ fn probe_internal(
         )
     } else if usage_count > 1 {
         format!(
-            "Token-backed property proven. {token} is used in {usage_count} places; shared token mutation requires an explicit scope choice."
+            "Token-backed property proven. {token} is observed in {usage_count} source references; global mutation always requires explicit confirmation."
         )
     } else {
         format!(
-            "Token-backed property proven. Choose a proven source scope for {token}."
+            "Token-backed property proven. Choose a proven source scope for {token}; global mutation always requires explicit confirmation."
         )
     };
     let instance_eligible = !truncated
@@ -1013,11 +1056,11 @@ fn resolve_plan(
             }
             match definition.public.scope {
                 TokenDefinitionScope::Global => {
-                    if probe.public.usage_count > 1 && !decision.confirm_shared_global {
+                    if !decision.confirm_shared_global {
                         return Ok(unsafe_plan(
                             TokenEditMode::Token,
                             format!(
-                                "{token} affects {} proven usages. Explicit global blast-radius confirmation is required.",
+                                "{token} is a global token with {} bounded source references. Explicit global confirmation is always required.",
                                 probe.public.usage_count
                             ),
                         ));
@@ -1266,6 +1309,22 @@ mod tests {
     }
 
     #[test]
+    fn blast_radius_counts_valid_var_trivia() {
+        let root = fixture("var-trivia");
+        fs::write(
+            root.join("styles.css"),
+            ":root { --space: 16px; }\n.card { gap: var(--space); }\n.other { gap: var( --space ); }\n.third { gap: VAR(/* note */ --space); }\n.long { gap: var(--space-large); }\n",
+        )
+        .unwrap();
+        let probe = probe_internal(&root, &selection(), &change("24px"))
+            .unwrap()
+            .public;
+        assert!(probe.eligible);
+        assert_eq!(probe.usage_count, 3);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn class_owned_rule_is_not_a_single_element_edit() {
         let root = fixture("class-instance");
         fs::write(
@@ -1359,6 +1418,31 @@ mod tests {
                 .public
                 .safe
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn single_reference_global_token_still_requires_confirmation() {
+        let root = fixture("single-global");
+        fs::write(
+            root.join("styles.css"),
+            ":root { --space: 16px; }\n.card { gap: var(--space); }\n",
+        )
+        .unwrap();
+        let probe = probe_internal(&root, &selection(), &change("24px")).unwrap();
+        assert_eq!(probe.public.usage_count, 1);
+        let definition = &probe.public.definitions[0];
+        let decision = TokenEditDecision {
+            mode: TokenEditMode::Token,
+            target_path: Some(definition.path.clone()),
+            target_line: Some(definition.line),
+            target_selector: Some(definition.selector.clone()),
+            expected_value: Some(definition.value.clone()),
+            confirm_shared_global: false,
+        };
+        let blocked = resolve_plan(&root, &selection(), &change("24px"), &decision).unwrap();
+        assert!(!blocked.public.safe);
+        assert!(blocked.public.reason.contains("always required"));
         let _ = fs::remove_dir_all(root);
     }
 
