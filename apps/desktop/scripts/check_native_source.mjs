@@ -16,6 +16,9 @@ const previewRuntime = await readFile(join(root, 'src-tauri/src/preview_runtime.
 const sourceLocator = await readFile(join(root, 'src-tauri/src/source_locator.rs'), 'utf8');
 const timelineRuntime = await readFile(join(root, 'src-tauri/src/timeline_runtime.rs'), 'utf8');
 const timelineCursor = await readFile(join(root, 'src-tauri/src/timeline_cursor.rs'), 'utf8');
+const reviewRuntime = await readFile(join(root, 'src-tauri/src/review_runtime_v2.rs'), 'utf8');
+const reviewDiff = await readFile(join(root, 'src-tauri/src/review_diff.rs'), 'utf8');
+const gitShip = await readFile(join(root, 'src-tauri/src/git_ship.rs'), 'utf8');
 const persistence = await readFile(join(root, 'src-tauri/src/persistence.rs'), 'utf8');
 const systemRuntime = await readFile(join(root, 'src-tauri/src/system_runtime.rs'), 'utf8');
 const app = await readFile(join(root, 'src/App.tsx'), 'utf8');
@@ -24,6 +27,9 @@ const approval = await readFile(join(root, 'src/components/ApprovalCard.tsx'), '
 const diagnostics = await readFile(join(root, 'src/components/DiagnosticsPanel.tsx'), 'utf8');
 const versionPanel = await readFile(join(root, 'src/components/VersionTimelinePanel.tsx'), 'utf8');
 const promptQueue = await readFile(join(root, 'src/components/PromptQueue.tsx'), 'utf8');
+const shipPanel = await readFile(join(root, 'src/components/ShipPanel.tsx'), 'utf8');
+const reviewController = await readFile(join(root, 'src/review/controller.ts'), 'utf8');
+const shipController = await readFile(join(root, 'src/ship/controller.ts'), 'utf8');
 const queueController = await readFile(join(root, 'src/queue/controller.ts'), 'utf8');
 const timelineController = await readFile(join(root, 'src/timeline/controller.ts'), 'utf8');
 const nativePreview = await readFile(join(root, 'src/preview/NativePreview.tsx'), 'utf8');
@@ -71,21 +77,9 @@ for (const token of ['system_open_external', '/usr/bin/open', 'https://']) {
 }
 
 for (const token of [
-  'timeline_init',
-  'timeline_snapshot',
-  'timeline_restore',
-  'timeline_back',
-  'timeline_forward',
-  'timeline_diff',
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'refs/monument/checkpoints',
-  'restore-safety',
-  'Before restore',
-  '.require_git(false)',
-  '.env.example',
-  'Restore blocked because unmanaged',
+  'timeline_init', 'timeline_snapshot', 'timeline_restore', 'timeline_back', 'timeline_forward', 'timeline_diff',
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'refs/monument/checkpoints', 'restore-safety', 'Before restore',
+  '.require_git(false)', '.env.example', 'Restore blocked because unmanaged',
 ]) {
   if (!timelineRuntime.includes(token)) throw new Error(`Version Timeline runtime missing ${token}`);
 }
@@ -113,7 +107,29 @@ for (const token of ['postTurnPending = workspace.completionSerial > handledComp
 }
 if (!entry.includes("./styles/queue.css")) throw new Error('Prompt Queue styles are not loaded');
 
-const productionSource = `${entry}\n${app}\n${approval}\n${diagnostics}\n${nativePreview}\n${selection}\n${turnContext}\n${versionPanel}\n${timelineController}\n${promptQueue}\n${queueController}`;
+for (const token of ['exec', '--ephemeral', '--sandbox', 'read-only', '--ignore-user-config', '--output-schema', 'current_dir(&scratch)', 'REVIEW_TIMEOUT']) {
+  if (!reviewRuntime.includes(token)) throw new Error(`Fresh Review isolation missing ${token}`);
+}
+if (reviewRuntime.includes('danger-full-access') || reviewRuntime.includes('workspace-write')) throw new Error('Fresh Review must remain read-only');
+for (const token of ['MAX_DIFF_BYTES', 'timeline_review_packet', 'parent_commit_sha', 'current_commit_sha']) {
+  if (!reviewDiff.includes(token)) throw new Error(`Fresh Review exact-generation diff missing ${token}`);
+}
+for (const token of ['checkpointId', 'waiveFinding', 'blocker', 'requestReviewFindingRepair', 'recordTimelineReviewQuality']) {
+  if (!reviewController.includes(token)) throw new Error(`Fresh Review frontend contract missing ${token}`);
+}
+for (const token of ['evaluateShipGate', 'Deterministic checks', 'Browser evidence', 'Fresh Review', 'Pending work', 'blockingCount']) {
+  if (!shipController.includes(token)) throw new Error(`Ship eligibility contract missing ${token}`);
+}
+for (const token of ['Ready to ship', 'Prepare commit', 'Review files being committed', 'Commit locally', 'No push was performed']) {
+  if (!shipPanel.includes(token)) throw new Error(`Ship product UX missing ${token}`);
+}
+for (const token of ['git_ship_plan', 'git_ship_commit', 'arg("add").arg("--")', '"--name-only", "-z"', '"--others", "--exclude-standard", "-z"', 'remaining_files']) {
+  if (!gitShip.includes(token)) throw new Error(`Local Git Ship contract missing ${token}`);
+}
+if (gitShip.includes('--no-verify') || gitShip.includes('git add .') || gitShip.includes('git push')) throw new Error('Ship must not bypass hooks, broadly stage, or push implicitly');
+if (!entry.includes("./styles/ship.css") || !entry.includes("./styles/ship-git.css")) throw new Error('Ship styles are not loaded');
+
+const productionSource = `${entry}\n${app}\n${approval}\n${diagnostics}\n${nativePreview}\n${selection}\n${turnContext}\n${versionPanel}\n${timelineController}\n${promptQueue}\n${queueController}\n${shipPanel}\n${reviewController}\n${shipController}`;
 if (productionSource.includes('mock-data') || productionSource.includes('BrowserDemoCodexTransport')) throw new Error('Production Monument entrypoint must never depend on mock product data');
 if (!app.includes('Tell Monument what to build or change')) throw new Error('Product-first composer contract drifted');
 if (!app.includes('Under the hood')) throw new Error('Progressive disclosure developer surface is missing');
@@ -142,8 +158,8 @@ if (codexClient.includes('textElements')) throw new Error('Legacy textElements p
 for (const token of ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/permissions/requestApproval', 'item/tool/requestUserInput', 'serverRequest/resolved', 'account/login/completed', 'account/updated', 'resolveApproval', 'answerUserInput', 'startChatGptLogin']) {
   if (!codexProjection.includes(token)) throw new Error(`Codex runtime projection missing ${token}`);
 }
-for (const source of [codex, processRuntime, previewRuntime, sourceLocator, systemRuntime, timelineRuntime]) {
+for (const source of [codex, processRuntime, previewRuntime, sourceLocator, systemRuntime, timelineRuntime, reviewRuntime, reviewDiff, gitShip]) {
   if (source.includes('sh -c') || source.includes('bash -c')) throw new Error('Native runtimes must not execute user work through an interpolated shell');
 }
 
-console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/timeline/queue/release contract: PASS`);
+console.log(`Monument ${packageJson.version} production/native/protocol/auth/preview/select/timeline/queue/review/ship/release contract: PASS`);
