@@ -1,0 +1,68 @@
+name: Monument Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/monument-desktop-ci.yml'
+      - '.github/workflows/monument-intel-alpha-release.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/monument-desktop-ci.yml'
+      - '.github/workflows/monument-intel-alpha-release.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monument-desktop-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-contracts:
+    name: TypeScript · contracts · tests · build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript and native source contracts
+        run: npm run check
+
+      - name: Desktop regression tests
+        run: npm test
+
+      - name: Production frontend build
+        run: npm run build
+
+  native-intel:
+    name: Rust / Tauri · Intel x86_64
+    needs: frontend-contracts
+    runs-on: macos-15-intel
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable for Intel
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-apple-darwin
+
+      - name: Run native tests on Intel
+        run: cargo test --all-targets --target x86_64-apple-darwin
