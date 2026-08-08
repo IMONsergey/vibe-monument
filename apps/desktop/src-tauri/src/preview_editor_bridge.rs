@@ -112,6 +112,14 @@ pub fn preview_editor_emit(
 }
 
 #[tauri::command]
+pub fn preview_editor_set_active(app: AppHandle, enabled: bool) -> Result<(), String> {
+    editor_eval(
+        &app,
+        format!("window.__MONUMENT_EDITOR__ && window.__MONUMENT_EDITOR__.setActive({enabled});"),
+    )
+}
+
+#[tauri::command]
 pub fn preview_editor_request_tree(app: AppHandle) -> Result<(), String> {
     editor_eval(
         &app,
