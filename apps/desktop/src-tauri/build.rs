@@ -1,3 +1,52 @@
+const APP_COMMANDS: &[&str] = &[
+    "codex_start",
+    "codex_send",
+    "codex_status",
+    "codex_stop",
+    "codex_protocol_probe",
+    "project_open",
+    "project_inspect",
+    "project_source_hints",
+    "runtime_start",
+    "runtime_status",
+    "runtime_stop",
+    "preview_open",
+    "preview_set_bounds",
+    "preview_set_inspect",
+    "preview_install_browser_evidence",
+    "preview_collect_browser_evidence",
+    "preview_clear_browser_evidence",
+    "preview_reload",
+    "preview_close",
+    "preview_editor_emit",
+    "preview_editor_request_tree",
+    "preview_editor_select",
+    "preview_editor_hover",
+    "verification_plan",
+    "verification_run",
+    "timeline_init",
+    "timeline_snapshot",
+    "timeline_list",
+    "timeline_status",
+    "timeline_restore_safe",
+    "timeline_back_safe",
+    "timeline_forward_safe",
+    "timeline_diff",
+    "timeline_review_packet",
+    "timeline_review_source_context",
+    "timeline_set_active_path",
+    "review_run",
+    "git_ship_plan",
+    "git_ship_commit",
+    "system_open_external",
+    "state_get",
+    "state_set",
+];
+
 fn main() {
-    tauri_build::build()
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(APP_COMMANDS)),
+    )
+    .expect("failed to generate Monument Tauri command permissions");
 }
