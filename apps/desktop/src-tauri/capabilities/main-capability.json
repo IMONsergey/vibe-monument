@@ -39,6 +39,7 @@
     "allow-preview-close",
     "allow-preview-editor-set-active",
     "allow-preview-editor-request-tree",
+    "allow-preview-editor-request-content",
     "allow-preview-editor-select",
     "allow-preview-editor-hover",
     "allow-verification-plan",
