@@ -6,7 +6,11 @@ import {
   setPromptQueuePaused,
 } from '../queue/controller';
 import { checkpointVisualSourceTransaction } from '../timeline/controller';
-import { markSourceTransactionDirty } from './transactionState';
+import {
+  isSourceTransactionValidationBusy,
+  markSourceTransactionDirty,
+  recordSourceTransactionCheckpoint,
+} from './transactionState';
 import type { EditorSelection } from './types';
 
 export interface VisualPropertyChange {
@@ -160,6 +164,9 @@ export async function applyVisualPropertyEdit(
   const projectPath = await stateGet<string>('lastProjectPath').catch(() => null);
   if (!projectPath) throw new Error('Open a project before applying visual changes.');
   const project = await inspectProject(projectPath);
+  if (isSourceTransactionValidationBusy(project.id)) {
+    throw new Error('The previous direct visual edit is still being verified. Apply the next source transaction after its evidence settles.');
+  }
   const bounded = safeChanges(changes);
   if (!bounded.length) throw new Error('No visual property changes to apply.');
 
@@ -179,6 +186,10 @@ export async function applyVisualPropertyEdit(
       title: directTransactionTitle(selection, bounded),
       detail: directTransactionDetail(committed.path, bounded),
     });
+    if (checkpoint.turnSerial == null || checkpoint.turnSerial === 0) {
+      throw new Error('Visual source transaction was written but could not be bound to a Timeline generation. Ship remains blocked until the history state is resolved.');
+    }
+    recordSourceTransactionCheckpoint(project.id, checkpoint.id, checkpoint.turnSerial);
     window.dispatchEvent(new CustomEvent('monument:source-transaction', {
       detail: {
         projectId: project.id,
