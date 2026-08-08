@@ -46,6 +46,7 @@ test('checkpoint failure triggers a proved reverse source transaction instead of
     'rollbackDirectVisualSource',
     'before: prepared.change.after',
     'after: prepared.change.before',
+    'plan.fileFingerprint !== applied.nextFingerprint',
     'const rolledBack = await rollbackDirectVisualSource(prepared, result)',
     'automatic rollback could not be proven',
     'Monument restored the original source value',
