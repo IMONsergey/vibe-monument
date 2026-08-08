@@ -166,7 +166,7 @@ async function rollbackDirectVisualSource(
   };
   const response = await invokeNative<VisualSourcePlanResponse>('visual_source_plan', { input: request }).catch(() => null);
   const plan = response?.status === 'deterministic' ? response.plan : null;
-  if (!plan || plan.sourcePath !== applied.sourcePath) return false;
+  if (!plan || plan.sourcePath !== applied.sourcePath || plan.fileFingerprint !== applied.nextFingerprint) return false;
 
   const reverted = await invokeNative<VisualSourceApplyResult>('visual_source_apply', {
     input: {
