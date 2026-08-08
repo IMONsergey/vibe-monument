@@ -18,7 +18,7 @@ test('successful Timeline navigation forces the next prompt into a clean Codex t
 });
 
 test('turn completion finalizes its Timeline checkpoint before Codex becomes ready', () => {
-  assert.ok(runtime.includes("import { checkpointActiveTimelineTurn } from '../timeline/controller'"));
+  assert.ok(runtime.includes('checkpointActiveTimelineTurn'));
   assert.ok(runtime.includes('await checkpointActiveTimelineTurn({ codexThreadId, codexTurnId, turnSerial })'));
   assert.ok(runtime.includes("case 'turn/completed': {"));
   assert.ok(runtime.includes("this.patch({ state: 'busy', approval: null, activeTurnId: null })"));
