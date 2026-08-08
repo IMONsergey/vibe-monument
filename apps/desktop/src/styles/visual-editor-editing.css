@@ -1,0 +1,34 @@
+.property-grid .property-field.wide { grid-column: 1 / -1; }
+.property-field.editable { background: rgba(255,255,255,.78); }
+.property-field.editable:hover { border-color: rgba(24,24,22,.2); }
+.property-field.editable:focus-within { border-color: rgba(24,24,22,.34); box-shadow: 0 0 0 2px rgba(24,24,22,.035); }
+.property-field.readonly { background: rgba(24,24,22,.025); }
+.property-field.readonly input { color: var(--muted); cursor: default; }
+.property-field.dirty { border-color: rgba(120,144,0,.38); background: rgba(217,245,106,.13); }
+.property-field { position: relative; }
+.property-dirty-dot { position: absolute; right: 4px; top: 4px; width: 4px; height: 4px; border-radius: 50%; background: #8ba515; pointer-events: none; }
+.property-field.dirty input { padding-right: 12px; }
+
+.property-source-card { margin: 0 9px 9px; padding: 9px; display: grid; gap: 5px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.4); }
+.property-source-card.likely { border-color: rgba(45,121,84,.2); background: rgba(45,121,84,.035); }
+.property-source-card.possible { border-color: rgba(154,103,24,.18); background: rgba(154,103,24,.03); }
+.property-source-card.weak, .property-source-card.unknown { border-color: rgba(166,66,54,.13); }
+.property-source-head { display: flex; align-items: center; gap: 8px; }
+.property-source-head strong { font-size: 9px; }
+.property-source-head span { margin-left: auto; padding: 2px 4px; border-radius: 4px; background: rgba(24,24,22,.05); color: var(--muted); font-size: 7.4px; }
+.property-source-card > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 8px; }
+.property-source-copy { color: var(--muted); font-size: 8px; line-height: 1.4; }
+.property-source-card details { color: var(--muted); font-size: 7.7px; }
+.property-source-card summary { cursor: pointer; }
+.property-source-card details > div { margin-top: 5px; display: grid; gap: 3px; }
+.property-source-card details code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 7.5px; }
+
+.property-apply-bar { flex: 0 0 auto; min-height: 54px; display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-top: 1px solid var(--line); background: rgba(248,248,245,.985); }
+.property-apply-bar > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.property-apply-bar strong { font-size: 9.5px; }
+.property-apply-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 7.8px; }
+.property-apply-bar button { height: 29px; border: 0; border-radius: 7px; padding: 0 10px; background: #1b1b19; color: white; font-size: 8.5px; font-weight: 660; cursor: pointer; }
+.property-apply-bar button.secondary { border: 1px solid var(--line-strong); background: white; color: var(--ink); }
+.property-apply-bar button:disabled { opacity: .35; cursor: default; }
+.property-apply-bar.dirty { box-shadow: 0 -8px 20px rgba(24,24,22,.025); }
+.property-apply-bar.dirty strong { color: #667900; }
